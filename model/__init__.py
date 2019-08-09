@@ -8,3 +8,6 @@ from model.kmeans import *
 from model.dae import *
 from model.sda import *
 from model.som import *
+from model.pre_processing import *
+from model.feature_selector import *
+from model.genetic_features import *

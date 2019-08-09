@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 
-class DenseConvDense(object):
+class Deconvence(object):
     
     def __init__(self, model_name='C0000', summaries_dir='output'):
 
@@ -415,7 +415,9 @@ class DenseConvDense(object):
             
             while start < x.shape[0]:
                 
-                y_ = self.sess.run(self.fc, feed_dict={self.input: x[start:end], self.keep_prob: 1., self.training: False})
+                y_ = self.sess.run(self.fc, feed_dict={self.input: x[start:end],
+                                                       self.keep_prob: 1.,
+                                                       self.training: False})
                 
                 y_hat += list(y_)
                 

@@ -29,46 +29,67 @@ class DenoisingAutoencoder(Model):
             self.keep_probability = tf.placeholder(tf.float32, name='keep_probability')
 
             self.batch_size = None
+            
+            self.layer_index = None
 
-    def build(self, n_inputs, units=128, encoder_activation_function='sigmoid', decoder_activation_function='identity'):
+    def build(self, n_inputs, encoder_units=(128,), decoder_units=(128,), encoder_activation_function='sigmoid', decoder_activation_function='identity'):
 
+        assert isinstance(encoder_units, tuple) and len(encoder_units) > 0, 'encoder_units should tuple with at least one element'
+        
+        assert isinstance(decoder_units, tuple) and len(decoder_units) > 0, 'decoder_units should tuple with at least one element'
+        
         with self.graph.as_default():
             self.input = tf.placeholder(dtype=tf.float32, shape=(None, n_inputs), name='input')
 
-            with tf.name_scope('corrupted_input'):
+            with tf.name_scope('random_noise'):
 
-                mask = tf.random_uniform(shape=tf.shape(self.input), minval=0, maxval=1,
-                                         dtype=tf.float32, seed=None, name=None)
+                mask = tf.random_uniform(shape=tf.shape(self.input), minval=0, maxval=1, dtype=tf.float32, seed=None, name=None)
 
-                mask = tf.where(mask <= self.keep_probability,
-                                tf.ones_like(self.input, dtype=tf.float32),
-                                tf.zeros_like(self.input, dtype=tf.float32))
+                mask = tf.where(mask <= self.keep_probability, tf.ones_like(self.input, dtype=tf.float32), tf.zeros_like(self.input, dtype=tf.float32))
 
                 self.corrupted_input = tf.multiply(self.input, mask)
 
             with tf.name_scope('encoder'):
 
-                self.encoder = tf.layers.dense(self.corrupted_input, units,
-                                               kernel_initializer=tf.truncated_normal_initializer())
-
-                self.encoder = self.get_activation_function(encoder_activation_function)(self.encoder, name='encoder')
+                self.encoder = self.corrupted_input
+                
+                for layer_index, units in enumerate(encoder_units):
+                
+                    name = 'last_encoder' if layer_index == len(encoder_units) - 1 else 'encoder_{}'.format(layer_index + 1)
+               
+                    self.encoder = tf.layers.dense(self.encoder, units, kernel_initializer=tf.truncated_normal_initializer())
+                    
+                    self.encoder = self.get_activation_function(encoder_activation_function)(self.encoder, name=name)
 
             with tf.name_scope('decoder'):
 
-                self.decoder = tf.layers.dense(self.encoder, n_inputs,
-                                               kernel_initializer=tf.truncated_normal_initializer())
+                self.decoder = self.encoder
+                
+                for layer_index, units in enumerate(decoder_units):
+                
+                    self.decoder = tf.layers.dense(self.encoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer())
 
-                self.decoder = self.get_activation_function(decoder_activation_function)(self.decoder, name='decoder')
+                    self.decoder = self.get_activation_function(encoder_activation_function)(self.decoder, name='decoder_{}'.format(layer_index + 1))
+                    
+                self.decoder = tf.layers.dense(self.encoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer())
 
+                self.decoder = self.get_activation_function(decoder_activation_function)(self.decoder, name='last_encoder')
+
+            self.layer_index = layer_index + 1
+                
             self.saver = tf.train.Saver()
 
-    def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=1000, batch_size=None, shuffle=True,
-            optimizer='sgd', loss='mse'):
+            
+    def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True, optimizer='sgd', loss='mse'):
+        '''
+        
+        '''
+        assert steps > 0, 'steps should be an integer greater than zero'
 
-        assert steps > 0
+        assert batch_size is None or 0 < batch_size <= x.shape[0], 'bath should be none or an integer between zero (exclusive) and number of input features (inclusive)'
 
-        assert batch_size is None or 0 < batch_size <= x.shape[0]
-
+        self.best_error = np.inf
+        
         with self.graph.as_default():
 
             self.__build_optimizer(optimizer, loss)
@@ -87,8 +108,7 @@ class DenoisingAutoencoder(Model):
                 self.session.run(tf.local_variables_initializer())
 
                 if self.add_summaries:
-                    test_writer = tf.summary.FileWriter(self.summaries_dir + '/{}'.format(self.model_name),
-                                                        tf.get_default_graph())
+                    test_writer = tf.summary.FileWriter(self.summaries_dir + '/{}'.format(self.model_name), tf.get_default_graph())
 
                 n_rows = x.shape[0]
 
@@ -96,6 +116,8 @@ class DenoisingAutoencoder(Model):
 
                 j, logdata = 0, None
 
+                logs = []
+                
                 for step in range(steps):
 
                     current_block = 0
@@ -107,21 +129,28 @@ class DenoisingAutoencoder(Model):
 
                         batch = list(range(current_block, (min(current_block + batch_size, n_rows))))
 
-                        logdata = self.session.run([self.merged, self.optimizer],
+                        loss = self.session.run([self.optimizer, self.loss],
                                                         feed_dict={self.input: x[index[batch], :],
                                                                    self.learning_rate: learning_rate,
-                                                                   self.keep_probability: keep_probability})[0]
-
+                                                                   self.keep_probability: keep_probability})[1]
+                        
+                        logs.append(loss)
+                        
                         current_block += batch_size
 
                         j += 1
+                        
+                        break
 
-                    if self.add_summaries and step % 10 == 0:
-                        test_writer.add_summary(logdata, step)
-                    
+                    if self.add_summaries:
+                        test_writer.add_summary(self.session.run(tf.summary.scalar('mean ' + loss, np.mean(logs))), step)
+
                     if step == steps - 1:
-                        self.saver.save(self.session, '{0}/{1}/{1}'.format(self.summaries_dir, self.model_name), 
-                                        global_step=step)
+                        self.saver.save(self.session, '{0}/{1}/{1}'.format(self.summaries_dir, self.model_name), global_step=step)
+
+                    if self.best_error > np.mean(logs):
+                        self.best_error = np.mean(logs)
+                        self.saver.save(self.session, '{0}/{1}/{1}__BESTONE__'.format(self.summaries_dir, self.model_name), global_step=step)
 
     def predict(self, x):
 
@@ -135,8 +164,7 @@ class DenoisingAutoencoder(Model):
         while start < x.shape[0]:
 
             with self.graph.as_default():
-                x_ = self.session.run([self.decoder], feed_dict={self.input: x[start:end, :],
-                                                                 self.keep_probability: 1.0})[0]
+                x_ = self.session.run([self.decoder], feed_dict={self.input: x[start:end, :], self.keep_probability: 1.0})[0]
 
             if x_line is None:
                 x_line = x_
@@ -250,9 +278,9 @@ class DenoisingAutoencoder(Model):
 
                 self.keep_probability = tf.get_default_graph().get_tensor_by_name('keep_probability_1:0')
 
-                self.encoder = tf.get_default_graph().get_tensor_by_name('encoder/encoder:0')
+                self.encoder = tf.get_default_graph().get_tensor_by_name('encoder/last_encoder:0')
 
-                self.decoder = tf.get_default_graph().get_tensor_by_name('decoder/decoder:0')
+                self.decoder = tf.get_default_graph().get_tensor_by_name('decoder/last_decoder:0')
 
     def __build_optimizer(self, optimizer, loss):
 

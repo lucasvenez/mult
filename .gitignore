@@ -1,4 +1,10 @@
-.*
-.idea/
+*.tsv
+*.csv
+**/__pycache__/
 !.gitignore
-/log
+.idea
+.ipynb_checkpoints
+venv
+images/
+data/
+output/
