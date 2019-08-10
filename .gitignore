@@ -1,10 +1,14 @@
 *.tsv
 *.csv
+*.pkl
+*.pickle
+*.pdf
+*.png
+*.jpg
 **/__pycache__/
-!.gitignore
 .idea
 .ipynb_checkpoints
-venv
+venv/
 images/
-data/
 output/
+!.gitignore

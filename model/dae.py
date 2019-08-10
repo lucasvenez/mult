@@ -3,11 +3,15 @@ import tensorflow as tf
 import numpy as np
 import os
 
-
 class DenoisingAutoencoder(Model):
+    '''
+    '''
+    def __init__(self, model_name=None, summaries_dir='pretrained', verbose=0):
 
-    def __init__(self, model_name=None, summaries_dir='../output/'):
-
+        self.verbose = verbose
+        
+        self.early_stopping_rounds = None
+        
         self.graph = tf.Graph()
 
         with self.graph.as_default():
@@ -32,7 +36,8 @@ class DenoisingAutoencoder(Model):
             
             self.layer_index = None
 
-    def build(self, n_inputs, encoder_units=(128,), decoder_units=(128,), encoder_activation_function='sigmoid', decoder_activation_function='identity'):
+    def build(self, n_inputs, encoder_units=(128,), decoder_units=(128,), 
+              encoder_activation_function='sigmoid', decoder_activation_function='identity', l2_scale=1e-4):
 
         assert isinstance(encoder_units, tuple) and len(encoder_units) > 0, 'encoder_units should tuple with at least one element'
         
@@ -43,11 +48,12 @@ class DenoisingAutoencoder(Model):
 
             with tf.name_scope('random_noise'):
 
-                mask = tf.random_uniform(shape=tf.shape(self.input), minval=0, maxval=1, dtype=tf.float32, seed=None, name=None)
+                mask = tf.random_normal(shape=tf.shape(self.input), mean=0.0, stddev=1.0, dtype=tf.float32, seed=None, name=None)
 
-                mask = tf.where(mask <= self.keep_probability, tf.ones_like(self.input, dtype=tf.float32), tf.zeros_like(self.input, dtype=tf.float32))
+                # mask = tf.where(mask <= self.keep_probability, 
+                #                 tf.ones_like(self.input, dtype=tf.float32), tf.zeros_like(self.input, dtype=tf.float32))
 
-                self.corrupted_input = tf.multiply(self.input, mask)
+                self.corrupted_input = tf.add(self.input, mask)
 
             with tf.name_scope('encoder'):
 
@@ -57,7 +63,8 @@ class DenoisingAutoencoder(Model):
                 
                     name = 'last_encoder' if layer_index == len(encoder_units) - 1 else 'encoder_{}'.format(layer_index + 1)
                
-                    self.encoder = tf.layers.dense(self.encoder, units, kernel_initializer=tf.truncated_normal_initializer())
+                    self.encoder = tf.layers.dense(self.encoder, units, kernel_initializer=tf.truncated_normal_initializer(), 
+                                                   kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
                     
                     self.encoder = self.get_activation_function(encoder_activation_function)(self.encoder, name=name)
 
@@ -67,11 +74,13 @@ class DenoisingAutoencoder(Model):
                 
                 for layer_index, units in enumerate(decoder_units):
                 
-                    self.decoder = tf.layers.dense(self.encoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer())
+                    self.decoder = tf.layers.dense(self.decoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer(),
+                                                  kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-4))
 
                     self.decoder = self.get_activation_function(encoder_activation_function)(self.decoder, name='decoder_{}'.format(layer_index + 1))
                     
-                self.decoder = tf.layers.dense(self.encoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer())
+                self.decoder = tf.layers.dense(self.decoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer(),
+                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-4))
 
                 self.decoder = self.get_activation_function(decoder_activation_function)(self.decoder, name='last_encoder')
 
@@ -80,15 +89,21 @@ class DenoisingAutoencoder(Model):
             self.saver = tf.train.Saver()
 
             
-    def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True, optimizer='sgd', loss='mse'):
+    def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True, optimizer='sgd', loss='mse', early_stopping_rounds=1000):
         '''
         
         '''
+        assert early_stooping_rounds > 0, 'early_stopping_rounds should be greater than zero'
+        
         assert steps > 0, 'steps should be an integer greater than zero'
 
         assert batch_size is None or 0 < batch_size <= x.shape[0], 'bath should be none or an integer between zero (exclusive) and number of input features (inclusive)'
 
+        self.early_stopping_rounds = early_stopping_rounds
+        
         self.best_error = np.inf
+        
+        iterations_without_improvements = 0
         
         with self.graph.as_default():
 
@@ -103,23 +118,39 @@ class DenoisingAutoencoder(Model):
 
             with self.graph.as_default():
 
+                #
+                #
+                #
                 self.session.run(tf.global_variables_initializer())
 
                 self.session.run(tf.local_variables_initializer())
+                
+                #
+                #
+                #
+                opt_metric_value = tf.placeholder(dtype=tf.float32, name='optimization_metric_ph')
+        
+                opt_metric_value_summary = tf.summary.scalar('mean_' + loss, opt_metric_value)
 
                 if self.add_summaries:
                     test_writer = tf.summary.FileWriter(self.summaries_dir + '/{}'.format(self.model_name), tf.get_default_graph())
 
+                #
+                #
+                #
                 n_rows = x.shape[0]
 
                 index = np.array(list(range(n_rows)), dtype=np.int)
 
                 j, logdata = 0, None
-
-                logs = []
                 
+                #
+                #
+                #
                 for step in range(steps):
-
+                    
+                    logs = []
+                    
                     current_block = 0
 
                     while current_block < n_rows:
@@ -129,33 +160,48 @@ class DenoisingAutoencoder(Model):
 
                         batch = list(range(current_block, (min(current_block + batch_size, n_rows))))
 
-                        loss = self.session.run([self.optimizer, self.loss],
+                        loss_value = self.session.run([self.optimizer, self.loss],
                                                         feed_dict={self.input: x[index[batch], :],
                                                                    self.learning_rate: learning_rate,
                                                                    self.keep_probability: keep_probability})[1]
                         
-                        logs.append(loss)
+                        logs.append(loss_value)
                         
                         current_block += batch_size
 
                         j += 1
-                        
-                        break
 
                     if self.add_summaries:
-                        test_writer.add_summary(self.session.run(tf.summary.scalar('mean ' + loss, np.mean(logs))), step)
-
-                    if step == steps - 1:
-                        self.saver.save(self.session, '{0}/{1}/{1}'.format(self.summaries_dir, self.model_name), global_step=step)
+                        
+                        summary_scalar = self.session.run(opt_metric_value_summary, feed_dict={opt_metric_value: np.mean(logs)})
+                        
+                        test_writer.add_summary(summary_scalar, step)
 
                     if self.best_error > np.mean(logs):
+                        
+                        iterations_without_improvements = 0
+                        
                         self.best_error = np.mean(logs)
-                        self.saver.save(self.session, '{0}/{1}/{1}__BESTONE__'.format(self.summaries_dir, self.model_name), global_step=step)
+                        
+                        self.saver.save(self.session, '{0}/{1}/graph/{1}'.format(self.summaries_dir, self.model_name))
+                        
+                    else:
+                        iterations_without_improvements += 1
+                    
+                    #
+                    #
+                    #
+                    if iterations_without_improvements > self.early_stopping_rounds:
+                        
+                        if self.verbose > 0:
+                            print('early stopping after {} iterations without improvements: best metri value {}'.format(iterations_without_improvements, np.mean(logs)))
+                        
+                        break
 
     def predict(self, x):
 
         if self.batch_size is None:
-            self.batch_size = 1000
+            self.batch_size = np.min(1000, x.shape[0])
 
         x_line = None
 
@@ -258,7 +304,7 @@ class DenoisingAutoencoder(Model):
 
         return self.encode(x)
 
-    def fit_transform(self, x, keep_probability=0.75, learning_rate=1e-4, steps=1000, batch_size=None, shuffle=True):
+    def fit_transform(self, x, keep_probability=0.75, learning_rate=1e-2, steps=1000, batch_size=None, shuffle=True):
 
         self.fit(x, keep_probability, learning_rate, steps, batch_size, shuffle)
 
