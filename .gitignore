@@ -5,6 +5,7 @@
 *.pdf
 *.png
 *.jpg
+*.txt
 **/__pycache__/
 .idea
 .ipynb_checkpoints
