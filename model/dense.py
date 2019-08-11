@@ -14,9 +14,7 @@ from model import Model
 
 class Dense(Model):
 
-    def __init__(self,
-                 summaries_dir='../output',
-                 model_name='M0000'):
+    def __init__(self, summaries_dir='../output', model_name='M0000'):
 
         self.graph = tf.Graph()
 
