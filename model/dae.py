@@ -23,6 +23,10 @@ class DenoisingAutoencoder(Model):
         self.summaries_dir = summaries_dir
         
         self.model_name = model_name
+        
+        with self.graph.as_default():
+
+            self.session = tf.Session(graph=self.graph)
 
     def build(self, n_inputs, encoder_units=(128,), decoder_units=(128,), 
               encoder_activation_function='sigmoid', decoder_activation_function='identity', l2_scale=1e-4):
@@ -32,8 +36,6 @@ class DenoisingAutoencoder(Model):
         assert isinstance(decoder_units, tuple) and len(decoder_units) > 0, 'decoder_units should tuple with at least one element'
         
         with self.graph.as_default():
-
-            self.session = tf.Session(graph=self.graph)
 
             self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
 
@@ -47,7 +49,7 @@ class DenoisingAutoencoder(Model):
 
                 prob = tf.random_uniform(shape=tf.shape(self.input), minval=0.0, maxval=1.0, dtype=tf.float32, seed=None, name=None)
                 
-                prob = tf.where(prob <= self.keep_probability, 
+                prob = tf.where(prob <= 1. - self.keep_probability, 
                                 tf.ones_like(self.input, dtype=tf.float32), tf.zeros_like(self.input, dtype=tf.float32))
 
                 self.corrupted_input = tf.add(self.input, tf.multiply(prob, mask))
