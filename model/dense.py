@@ -1,23 +1,25 @@
-import os
-import warnings
-warnings.filterwarnings("ignore")
-warnings.filterwarnings("ignore",category=DeprecationWarning)
+from model import Model
 
 import tensorflow as tf
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-import os
 import numpy as np
+import warnings
+import os
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-from model import Model
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class Dense(Model):
+    """
 
-    def __init__(self,
-                 summaries_dir='../output',
-                 model_name='M0000'):
+    """
+    def __init__(self, model_name, summaries_dir='output'):
+        """
 
+        :param model_name:
+        :param summaries_dir:
+        """
         self.graph = tf.Graph()
 
         self.session = tf.Session(graph=self.graph)
@@ -41,7 +43,7 @@ class Dense(Model):
 
             self.keep_prob = None
 
-            self.training = tf.placeholder(tf.bool, name='phase_ph')
+            self.training = None
 
             self.lr = None
 
@@ -129,7 +131,7 @@ class Dense(Model):
             y_test = y
 
         #
-        # FIXME check if there is not unitialized variables
+        # FIXME check if there is not uninitialized variables
         #
         with self.graph.as_default():
 
@@ -137,8 +139,8 @@ class Dense(Model):
 
             self.session.run(tf.local_variables_initializer())
 
-            tb_writer = tf.summary.FileWriter(self.summaries_dir + '/{}'.format(self.model_name),
-                                                tf.get_default_graph())
+            tb_writer = tf.summary.FileWriter(
+                self.summaries_dir + '/{}'.format(self.model_name), self.graph)
 
             n_rows = x.shape[0]
 
@@ -157,12 +159,13 @@ class Dense(Model):
 
                     batch = list(range(current_block, (min(current_block + batch_size, n_rows))))
 
-                    train_log = self.session.run([self.tb_train] + self.optimizers + self.models,
-                                  feed_dict={self.raw_input: x[index[batch], :],
-                                             self.expected_output: y[index[batch], :],
-                                             self.keep_prob: self.keep_probability,
-                                             self.lr: learning_rate,
-                                             self.training: True})[0]
+                    train_log = self.session.run(
+                                    [self.tb_train] + self.optimizers + self.models,
+                                    feed_dict={self.raw_input: x[index[batch], :],
+                                               self.expected_output: y[index[batch], :],
+                                               self.keep_prob: self.keep_probability,
+                                               self.lr: learning_rate,
+                                               self.training: True})[0]
 
                     current_block += batch_size
 
@@ -171,12 +174,14 @@ class Dense(Model):
                 if self.add_summaries:
                     tb_writer.add_summary(train_log, step)
 
-                test_log = self.session.run(self.tb_test, feed_dict={self.raw_input: x_test,
-                                                                  self.expected_output: y_test,
-                                                                  self.keep_prob: 1.,
-                                                                  self.training: False})
+                test_log = self.session.run(self.tb_test,
+                                            feed_dict={self.raw_input: x_test,
+                                                       self.expected_output: y_test,
+                                                       self.keep_prob: 1.,
+                                                       self.training: False})
 
-                self.saver.save(self.session, '{0}/{1}/{1}'.format(self.summaries_dir, self.model_name), global_step=step)
+                self.saver.save(self.session, '{0}/{1}/{1}'.format(
+                    self.summaries_dir, self.model_name), global_step=step)
 
                 if self.add_summaries:
                     for tl in test_log:
@@ -186,9 +191,11 @@ class Dense(Model):
 
         with self.graph.as_default():
 
-            result = self.session.run(self.abstract_representation, feed_dict={self.raw_input: x,
-                                                                            self.keep_prob: 1.,
-                                                                            self.training: False})
+            result = self.session.run(
+                self.abstract_representation,
+                feed_dict={self.raw_input: x,
+                           self.keep_prob: 1.,
+                           self.training: False})
 
             result = np.array(result)
 
@@ -200,7 +207,11 @@ class Dense(Model):
 
         with self.graph.as_default():
 
-            result = self.session.run(self.models, feed_dict={self.raw_input: x, self.keep_prob: 1., self.training: False})
+            result = self.session.run(
+                self.models,
+                feed_dict={self.raw_input: x,
+                           self.keep_prob: 1.,
+                           self.training: False})
 
             result = np.array(result)
 
@@ -245,19 +256,19 @@ class Dense(Model):
                 self.n_hidden_nodes = self.abstract_representation[-1][-1].shape[1]
 
     def build(self, 
-                 n_input_features,
-                 n_outputs,
-                 abstraction_activation_functions=('sigmoid', 'tanh', 'relu'),
-                 n_hidden_layers=3,
-                 n_hidden_nodes=10,
-                 initial_weights=None,
-                 initial_bias=None,
-                 keep_probability=0.5,
-                 optimizer_algorithms=('sgd', 'sgd', 'sgd'),
-                 cost_function='logloss',
-                 add_summaries=True,
-                 batch_normalization=False,
-                 l2_regularizer=.1,):
+              n_input_features,
+              n_outputs,
+              abstraction_activation_functions=('sigmoid', 'tanh', 'relu'),
+              n_hidden_layers=3,
+              n_hidden_nodes=10,
+              initial_weights=None,
+              initial_bias=None,
+              keep_probability=0.5,
+              optimizer_algorithms=('sgd', 'sgd', 'sgd'),
+              cost_function='logloss',
+              add_summaries=True,
+              batch_normalization=False,
+              l2_regularizer=.1):
 
         with self.graph.as_default():
 
@@ -269,148 +280,163 @@ class Dense(Model):
 
             assert len(optimizer_algorithms) == len(abstraction_activation_functions)
 
-            self.n_input_features = n_input_features
+            with self.graph.as_default():
 
-            self.abstraction_activation_functions = abstraction_activation_functions
+                self.training = tf.placeholder(tf.bool, name='phase_ph')
 
-            self.n_hidden_nodes = n_hidden_nodes
+                self.n_input_features = n_input_features
 
-            self.n_hidden_layers = n_hidden_layers
+                self.abstraction_activation_functions = abstraction_activation_functions
 
-            self.keep_probability = keep_probability
+                self.n_hidden_nodes = n_hidden_nodes
 
-            self.n_outputs = n_outputs
+                self.n_hidden_layers = n_hidden_layers
 
-            self.optimizer_algorithms = optimizer_algorithms
+                self.keep_probability = keep_probability
 
-            self.cost_function = cost_function
+                self.n_outputs = n_outputs
 
-            self.add_summaries = add_summaries
+                self.optimizer_algorithms = optimizer_algorithms
 
-            self.batch_normalization = batch_normalization
+                self.cost_function = cost_function
 
-            self.l2_regularizer = l2_regularizer
+                self.add_summaries = add_summaries
 
-            #
-            #
-            #
-            self.models = [None for _ in range(len(abstraction_activation_functions))]
+                self.batch_normalization = batch_normalization
 
-            self.cost_functions = [None for _ in range(len(abstraction_activation_functions))]
+                self.l2_regularizer = l2_regularizer
 
-            #
-            #
-            #
-            self.optimizers = [None for _ in range(len(abstraction_activation_functions))]
+                #
+                #
+                #
+                self.models = [None for _ in range(len(abstraction_activation_functions))]
 
-            self.correct_predictions = [None for _ in range(len(abstraction_activation_functions))]
+                self.cost_functions = [None for _ in range(len(abstraction_activation_functions))]
 
-            self.accuracies = [None for _ in range(len(abstraction_activation_functions))]
+                #
+                #
+                #
+                self.optimizers = [None for _ in range(len(abstraction_activation_functions))]
 
-            #
-            #
-            #
-            self.abstract_representation = [[None for _ in range(n_hidden_layers)]
-                                             for _ in range(len(abstraction_activation_functions))]
+                self.correct_predictions = [None for _ in range(len(abstraction_activation_functions))]
 
-            self.dense_layers = [[None for _ in range(n_hidden_layers)]
-                                  for _ in range(len(abstraction_activation_functions))]
+                self.accuracies = [None for _ in range(len(abstraction_activation_functions))]
 
-            self.l2_regularizers = [None for _ in range(len(abstraction_activation_functions))]
+                #
+                #
+                #
+                self.abstract_representation = [
+                    [None for _ in range(n_hidden_layers)] for _ in range(len(abstraction_activation_functions))
+                ]
 
-            #
-            #
-            #
-            self.initial_weights = initial_weights
+                self.dense_layers = [
+                    [None for _ in range(n_hidden_layers)] for _ in range(len(abstraction_activation_functions))
+                ]
 
-            self.initial_bias = initial_bias
+                self.l2_regularizers = [None for _ in range(len(abstraction_activation_functions))]
 
+                #
+                #
+                #
+                self.initial_weights = initial_weights
 
-            #
-            #
-            #
+                self.initial_bias = initial_bias
 
-            self.raw_input = tf.placeholder(tf.float32, shape=(None, self.n_input_features), name='raw_input')
+                #
+                #
+                #
+                self.raw_input = tf.placeholder(
+                    tf.float32, shape=(None, self.n_input_features), name='raw_input')
 
-            self.expected_output = tf.placeholder(tf.float32, shape=(None, self.n_outputs), name='expected_output')
+                self.expected_output = tf.placeholder(
+                    tf.float32, shape=(None, self.n_outputs), name='expected_output')
 
-            self.keep_prob = tf.placeholder(tf.float32, name='dropout_keep_probability')
+                self.keep_prob = tf.placeholder(
+                    tf.float32, name='dropout_keep_probability')
 
-            with tf.name_scope('abstraction_layer'):
+                with tf.name_scope('abstraction_layer'):
 
-                for i, activation_function in enumerate(self.abstraction_activation_functions):
+                    for i, activation_function in enumerate(self.abstraction_activation_functions):
 
-                    with tf.name_scope('{}_model'.format(activation_function)):
+                        with tf.name_scope('{}_model'.format(activation_function)):
 
-                        previous_layer_size, previous_layer = self.n_input_features, self.raw_input
+                            previous_layer_size, previous_layer = self.n_input_features, self.raw_input
 
-                        for j in range(self.n_hidden_layers):
+                            for j in range(self.n_hidden_layers):
 
-                            layer_name = 'hidden_{}_layer_{}'.format(activation_function, j + 1)
+                                layer_name = 'hidden_{}_layer_{}'.format(activation_function, j + 1)
 
-                            with tf.name_scope(layer_name):
-                                #
-                                # TODO refactor code to define a function to create dense layers
-                                #
-                                af = self.get_activation_function(activation_function)
+                                with tf.name_scope(layer_name):
+                                    #
+                                    # TODO refactor code to define a function to create dense layers
+                                    #
+                                    af = self.get_activation_function(activation_function)
 
-                                weight_name = 'weight_{}_h{}{}'.format(activation_function, i + 1, j + 1)
+                                    weight_name = 'weight_{}_h{}{}'.format(activation_function, i + 1, j + 1)
 
-                                if self.initial_weights is None:
-                                    initial_values = tf.truncated_normal([previous_layer_size, self.n_hidden_nodes], stddev=.1)
-                                else:
-                                    initial_values = self.initial_weights[i][j]
+                                    if self.initial_weights is None:
+                                        initial_values = tf.truncated_normal(
+                                            [previous_layer_size, self.n_hidden_nodes], stddev=.1)
 
-                                w = tf.Variable(initial_values, name=weight_name)
+                                    else:
+                                        initial_values = self.initial_weights[i][j]
 
-                                bias_name = 'bias_{}_h{}{}'.format(activation_function, i + 1, j + 1)
+                                    w = tf.Variable(initial_values, name=weight_name)
 
-                                if self.l2_regularizers[i] is None:
-                                    self.l2_regularizers[i] = tf.nn.l2_loss(w)
+                                    bias_name = 'bias_{}_h{}{}'.format(activation_function, i + 1, j + 1)
 
-                                else:
-                                    self.l2_regularizers[i] = self.l2_regularizers[i] + tf.nn.l2_loss(w)
+                                    if self.l2_regularizers[i] is None:
+                                        self.l2_regularizers[i] = tf.nn.l2_loss(w)
 
-                                if self.initial_bias is None:
-                                    initial_values = tf.zeros([self.n_hidden_nodes])
-                                else:
-                                    initial_values = self.initial_bias[i][j]
+                                    else:
+                                        self.l2_regularizers[i] = self.l2_regularizers[i] + tf.nn.l2_loss(w)
 
-                                b = tf.Variable(initial_values, name=bias_name)
+                                    if self.initial_bias is None:
+                                        initial_values = tf.zeros([self.n_hidden_nodes])
 
-                                abstraction_layer_name = 'abstraction_{}_layer_{}'.format(activation_function, j + 1)
+                                    else:
+                                        initial_values = self.initial_bias[i][j]
 
-                                self.dense_layers[i][j] = af(tf.add(tf.matmul(previous_layer, w), b))
+                                    b = tf.Variable(initial_values, name=bias_name)
 
-                                self.abstract_representation[i][j] = \
-                                    tf.nn.dropout(self.dense_layers[i][j], self.keep_prob,
-                                                  name=abstraction_layer_name if not self.batch_normalization
-                                                  else 'dropout_{}_{}'.format(activation_function, j + 1))
+                                    abstraction_layer_name = 'abstraction_{}_layer_{}'.format(
+                                        activation_function, j + 1)
 
-                                if self.batch_normalization:
+                                    self.dense_layers[i][j] = af(tf.add(tf.matmul(previous_layer, w), b))
+
                                     self.abstract_representation[i][j] = \
-                                        tf.layers.batch_normalization(self.abstract_representation[i][j], training=self.training,
-                                                                      name=abstraction_layer_name)
+                                        tf.nn.dropout(self.dense_layers[i][j], self.keep_prob,
+                                                      name=abstraction_layer_name if not self.batch_normalization
+                                                      else 'dropout_{}_{}'.format(activation_function, j + 1))
 
-                                previous_layer, previous_layer_size = self.abstract_representation[i][j], self.n_hidden_nodes
+                                    if self.batch_normalization:
+                                        self.abstract_representation[i][j] = \
+                                            tf.layers.batch_normalization(
+                                                self.abstract_representation[i][j], training=self.training,
+                                                name=abstraction_layer_name)
 
-                        with tf.name_scope('output_{}_layer'.format(activation_function)):
+                                    previous_layer = self.abstract_representation[i][j]
 
-                            weight_name = 'weight_{}_out'.format(activation_function)
+                                    previous_layer_size = self.n_hidden_nodes
 
-                            w = tf.Variable(tf.truncated_normal([previous_layer_size, self.n_outputs], stddev=.1), name=weight_name)
+                            with tf.name_scope('output_{}_layer'.format(activation_function)):
 
-                            self.l2_regularizers[i] += tf.nn.l2_loss(w)
+                                weight_name = 'weight_{}_out'.format(activation_function)
 
-                            bias_name = 'bias_{}_out'.format(activation_function)
+                                w = tf.Variable(tf.truncated_normal(
+                                    [previous_layer_size, self.n_outputs], stddev=.1), name=weight_name)
 
-                            b = tf.Variable(tf.zeros([self.n_outputs]), name=bias_name)
+                                self.l2_regularizers[i] += tf.nn.l2_loss(w)
 
-                            dense_name = 'dense_model_{}'.format(activation_function)
+                                bias_name = 'bias_{}_out'.format(activation_function)
 
-                            self.models[i] = tf.sigmoid(tf.add(tf.matmul(previous_layer, w), b, name=dense_name))
+                                b = tf.Variable(tf.zeros([self.n_outputs]), name=bias_name)
 
-            self.saver = tf.train.Saver()
+                                dense_name = 'dense_model_{}'.format(activation_function)
+
+                                self.models[i] = tf.sigmoid(tf.add(tf.matmul(previous_layer, w), b, name=dense_name))
+
+                self.saver = tf.train.Saver()
 
     def __build_optimizers(self):
 
@@ -421,10 +447,9 @@ class Dense(Model):
 
             with tf.name_scope('optimization'):
 
-                for i, (model, optimizer, activation_function, l2) in enumerate(zip(self.models,
-                                                                                self.optimizer_algorithms,
-                                                                                self.abstraction_activation_functions,
-                                                                                self.l2_regularizers)):
+                for i, (model, optimizer, activation_function, l2) in enumerate(zip(
+                        self.models, self.optimizer_algorithms,
+                        self.abstraction_activation_functions, self.l2_regularizers)):
 
                     self.cost_functions[i] = tf.losses.log_loss(labels=self.expected_output, predictions=model)
                     self.cost_functions[i] = tf.reduce_mean(self.cost_functions[i]) + self.l2_regularizer * l2
@@ -438,7 +463,6 @@ class Dense(Model):
                             tf.summary.scalar('dense_{}'.format(activation_function), self.cost_functions[i])
 
             if self.add_summaries:
-
                 #
                 # Create summary tensors
                 #

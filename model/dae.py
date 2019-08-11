@@ -3,10 +3,19 @@ import tensorflow as tf
 import numpy as np
 import os
 
+
 class DenoisingAutoencoder(Model):
-    '''
-    '''
+    """
+
+    """
+
     def __init__(self, model_name=None, summaries_dir='pretrained', verbose=0):
+        """
+
+        :param model_name:
+        :param summaries_dir:
+        :param verbose:
+        """
 
         self.verbose = verbose
         
@@ -30,10 +39,22 @@ class DenoisingAutoencoder(Model):
 
     def build(self, n_inputs, encoder_units=(128,), decoder_units=(128,), 
               encoder_activation_function='sigmoid', decoder_activation_function='identity', l2_scale=1e-4):
+        """
 
-        assert isinstance(encoder_units, tuple) and len(encoder_units) > 0, 'encoder_units should tuple with at least one element'
+        :param n_inputs:
+        :param encoder_units:
+        :param decoder_units:
+        :param encoder_activation_function:
+        :param decoder_activation_function:
+        :param l2_scale:
+        :return:
+        """
+
+        assert isinstance(encoder_units, tuple) and len(encoder_units) > 0, \
+            'encoder_units should tuple with at least one element'
         
-        assert isinstance(decoder_units, tuple) and len(decoder_units) > 0, 'decoder_units should tuple with at least one element'
+        assert isinstance(decoder_units, tuple) and len(decoder_units) > 0, \
+            'decoder_units should tuple with at least one element'
         
         with self.graph.as_default():
 
@@ -45,12 +66,17 @@ class DenoisingAutoencoder(Model):
 
             with tf.name_scope('random_noise'):
 
-                mask = tf.random_normal(shape=tf.shape(self.input), mean=0.0, stddev=0.1, dtype=tf.float32, seed=None, name=None)
+                mask = tf.random_normal(
+                    shape=tf.shape(self.input), mean=0.0, stddev=0.1,
+                    dtype=tf.float32, seed=None, name=None)
 
-                prob = tf.random_uniform(shape=tf.shape(self.input), minval=0.0, maxval=1.0, dtype=tf.float32, seed=None, name=None)
+                prob = tf.random_uniform(
+                    shape=tf.shape(self.input), minval=0.0, maxval=1.0,
+                    dtype=tf.float32, seed=None, name=None)
                 
                 prob = tf.where(prob <= 1. - self.keep_probability, 
-                                tf.ones_like(self.input, dtype=tf.float32), tf.zeros_like(self.input, dtype=tf.float32))
+                                tf.ones_like(self.input, dtype=tf.float32),
+                                tf.zeros_like(self.input, dtype=tf.float32))
 
                 self.corrupted_input = tf.add(self.input, tf.multiply(prob, mask))
 
@@ -60,12 +86,16 @@ class DenoisingAutoencoder(Model):
                 
                 for layer_index, units in enumerate(encoder_units):
                 
-                    name = 'last_encoder' if layer_index == len(encoder_units) - 1 else 'encoder_{}'.format(layer_index + 1)
+                    name = 'last_encoder' if layer_index == len(encoder_units) - 1 \
+                        else 'encoder_{}'.format(layer_index + 1)
                
-                    self.encoder = tf.layers.dense(self.encoder, units, kernel_initializer=tf.truncated_normal_initializer(), 
-                                                   kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale) if l2_scale > 0 else None)
+                    self.encoder = tf.layers.dense(
+                        self.encoder, units,
+                        kernel_initializer=tf.truncated_normal_initializer(),
+                        kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale) if l2_scale > 0 else None)
                     
-                    self.encoder = self.get_activation_function(encoder_activation_function)(self.encoder, name=name)
+                    self.encoder = self.get_activation_function(encoder_activation_function)(
+                        self.encoder, name=name)
 
             with tf.name_scope('decoder'):
 
@@ -73,26 +103,41 @@ class DenoisingAutoencoder(Model):
                 
                 for layer_index, units in enumerate(decoder_units):
                 
-                    self.decoder = tf.layers.dense(self.decoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer(),
-                                                  kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale) if l2_scale > 0 else None)
+                    self.decoder = tf.layers.dense(
+                        self.decoder, n_inputs,
+                        kernel_initializer=tf.truncated_normal_initializer(),
+                        kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale) if l2_scale > 0 else None)
 
-                    self.decoder = self.get_activation_function(encoder_activation_function)(self.decoder, name='decoder_{}'.format(layer_index + 1))
+                    self.decoder = self.get_activation_function(encoder_activation_function)(
+                        self.decoder, name='decoder_{}'.format(layer_index + 1))
                     
-                self.decoder = tf.layers.dense(self.decoder, n_inputs, kernel_initializer=tf.truncated_normal_initializer(),
-                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale) if l2_scale > 0 else None)
+                self.decoder = tf.layers.dense(
+                    self.decoder, n_inputs,
+                    kernel_initializer=tf.truncated_normal_initializer(),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale) if l2_scale > 0 else None)
 
-                self.decoder = self.get_activation_function(decoder_activation_function)(self.decoder, name='last_decoder')
+                self.decoder = self.get_activation_function(decoder_activation_function)(
+                    self.decoder, name='last_decoder')
 
             self.layer_index = layer_index + 1
                 
             self.saver = tf.train.Saver()
 
-            
-    def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True, optimizer='sgd', 
-            loss='mse', early_stopping_rounds=1000):
-        '''
-        
-        '''
+    def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True,
+            optimizer='sgd', loss='mse', early_stopping_rounds=1000):
+        """
+
+        :param x:
+        :param keep_probability:
+        :param learning_rate:
+        :param steps:
+        :param batch_size:
+        :param shuffle:
+        :param optimizer:
+        :param loss:
+        :param early_stopping_rounds:
+        :return:
+        """
         assert early_stopping_rounds > 0, 'early_stopping_rounds should be greater than zero'
         
         assert steps > 0, 'steps should be an integer greater than zero'
@@ -194,12 +239,18 @@ class DenoisingAutoencoder(Model):
                     if iterations_without_improvements >= self.early_stopping_rounds:
                         
                         if self.verbose > 0:
-                            print('early stopping after {} iterations without improvements with {} steps: best metri value {}'.format(
-                                iterations_without_improvements, step + 1, self.best_error))
+                            print('early stopping after {} iterations without improvements with {} '
+                                  'steps: best metri value {}'.format(
+                                        iterations_without_improvements, step + 1, self.best_error))
                         
                         break
 
     def predict(self, x):
+        """
+
+        :param x:
+        :return:
+        """
 
         if self.batch_size is None:
             self.batch_size = 1000
@@ -224,6 +275,11 @@ class DenoisingAutoencoder(Model):
         return x_line
 
     def encode(self, x):
+        """
+
+        :param x:
+        :return:
+        """
 
         if self.batch_size is None:
             self.batch_size = 1000
@@ -236,8 +292,8 @@ class DenoisingAutoencoder(Model):
 
             while start < x.shape[0]:
 
-                x_ = self.session.run([self.encoder], feed_dict={self.input: x[start:end, :],
-                                                                 self.keep_probability: 1.0})[0]
+                x_ = self.session.run([self.encoder],
+                                      feed_dict={self.input: x[start:end, :], self.keep_probability: 1.0})[0]
 
                 if x_line is None:
                     x_line = x_
@@ -250,6 +306,11 @@ class DenoisingAutoencoder(Model):
         return x_line
 
     def transform(self, x):
+        """
+
+        :param x:
+        :return:
+        """
 
         if self.batch_size is None:
             self.batch_size = 1000
@@ -275,6 +336,11 @@ class DenoisingAutoencoder(Model):
         return x_line
 
     def get_error(self, x):
+        """
+
+        :param x:
+        :return:
+        """
 
         if self.batch_size is None:
             self.batch_size = 1000
@@ -300,18 +366,43 @@ class DenoisingAutoencoder(Model):
         return x_line
 
     def fit_encode(self, x, keep_probability=0.75, learning_rate=1e-4, steps=1000, batch_size=None, shuffle=True):
+        """
+
+        :param x:
+        :param keep_probability:
+        :param learning_rate:
+        :param steps:
+        :param batch_size:
+        :param shuffle:
+        :return:
+        """
 
         self.fit(x, keep_probability, learning_rate, steps, batch_size, shuffle)
 
         return self.encode(x)
 
     def fit_transform(self, x, keep_probability=0.75, learning_rate=1e-2, steps=1000, batch_size=None, shuffle=True):
+        """
+
+        :param x:
+        :param keep_probability:
+        :param learning_rate:
+        :param steps:
+        :param batch_size:
+        :param shuffle:
+        :return:
+        """
 
         self.fit(x, keep_probability, learning_rate, steps, batch_size, shuffle)
 
         return self.transform(x)
 
     def load(self, model_path):
+        """
+
+        :param model_path:
+        :return:
+        """
 
         if os.path.exists('{}.meta'.format(model_path)) and os.path.isfile('{}.meta'.format(model_path)):
 
@@ -330,6 +421,12 @@ class DenoisingAutoencoder(Model):
                 self.decoder = tf.get_default_graph().get_tensor_by_name('decoder/last_decoder:0')
 
     def __build_optimizer(self, optimizer, loss):
+        """
+
+        :param optimizer:
+        :param loss:
+        :return:
+        """
 
         with tf.name_scope('optimization'):
 
@@ -350,3 +447,12 @@ class DenoisingAutoencoder(Model):
             # Create summary tensors
             #
             self.merged = tf.summary.merge_all()
+            
+    def close(self):
+        """
+        It closes the session and clears the DAE graph
+        :return: None
+        """
+        with self.graph.as_default():
+            self.session.close()
+        tf.reset_default_graph()
