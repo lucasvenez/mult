@@ -193,7 +193,7 @@ class DenoisingAutoencoder(Model):
                         
                         if self.verbose > 0:
                             print('early stopping after {} iterations without improvements with {} steps: best metri value {}'.format(
-                                iterations_without_improvements, step + 1, np.mean(logs)))
+                                iterations_without_improvements, step + 1, self.best_error))
                         
                         break
 
