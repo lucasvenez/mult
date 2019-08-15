@@ -20,8 +20,9 @@ def select_genes(genes, response, threshold=0.05):
     excluded_genes = []
     
     gene_table = {'variable': [], 'score': []}
-
-    response = response.values
+    
+    if isinstance(response, pd.DataFrame):
+        response = response.values
     
     for c in genes:
 

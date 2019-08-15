@@ -23,9 +23,12 @@ class GeneticProfiling(object):
 
     def fit(self, x):
         
-        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, 
+        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, min_n_observations=1,
                                      optimization_output_path=self.optimization_output_file_path, random_state=self.random_state)
         self.model.fit(x)
+    
+    def predict(self, x):
+        return self.model.predict(x)        
     
     def transform(self, x):
         profiling = self.model.transform(x)
@@ -34,6 +37,10 @@ class GeneticProfiling(object):
     def fit_transform(self, x):
         self.fit(x)
         return self.transform(x)
+    
+    def fit_predict(self, x):
+        self.fit(x)
+        return self.predict(x)
 
 
 class GeneticClustering(object):
@@ -56,7 +63,7 @@ class GeneticClustering(object):
 
     def fit(self, x):
         
-        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose,
+        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, min_n_observations=1,
                                      optimization_output_path=self.optimization_output_file_path, random_state=self.random_state)
         
         self.cluster_mapping = self.model.fit_predict(x.T)

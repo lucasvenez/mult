@@ -138,11 +138,14 @@ class DenoisingAutoencoder(Model):
         :param early_stopping_rounds:
         :return:
         """
-        assert early_stopping_rounds > 0, 'early_stopping_rounds should be greater than zero'
+        assert early_stopping_rounds > 0, \
+                'early_stopping_rounds should be greater than zero'
         
-        assert steps > 0, 'steps should be an integer greater than zero'
+        assert steps > 0, \
+                'steps should be an integer greater than zero'
 
-        assert batch_size is None or 0 < batch_size <= x.shape[0], 'bath should be none or an integer between zero (exclusive) and number of input features (inclusive)'
+        assert batch_size is None or 0 < batch_size <= x.shape[0], \
+                'bath should be none or an integer between zero (exclusive) and number of input features (inclusive)'
 
         self.early_stopping_rounds = early_stopping_rounds
         
