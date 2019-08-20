@@ -8,9 +8,51 @@ import pandas as pd
 import scipy.spatial.distance as distance
 import scipy.stats as statistical
 
+import numpy as np
 #stats = importr('stats')
 #base = importr('base')
 
+def select_genes_mic(genes, response, threshold=0.05, verbose=0):
+    #
+    # Gene Selection
+    #
+    
+    excluded_genes = []
+    
+    gene_table = {'variable': [], 'score': []}
+    
+    all_ = genes.copy()
+    all_['__response__'] = response
+    
+    mic_result = compute_mic(all_, ['__response__'])
+    
+    for index, row in mic_result.iterrows():
+        gene_table['variable'].append(row['IND_VAR'])
+        gene_table['score'].append(row['mic'])
+
+    gene_table = pd.DataFrame(gene_table).set_index('variable')
+    
+    threshold = np.quantile(gene_table['score'].values, 1 - threshold)
+    
+    selected_genes = list(gene_table[gene_table['score'] >= threshold].sort_values(by='score').index)
+    
+    if verbose > 0:
+        print('select_genes_mic selected {} variables in for the correlation step'.format(len(selected_genes)))
+    
+    pairwise_pearson = genes[selected_genes].corr().abs()
+    
+    for gi, g in enumerate(selected_genes[:-1]):
+        
+        gene_pearson = pairwise_pearson.loc[[g],:].iloc[:, (gi+1):]
+        
+        excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .75)[0]].columns)
+    
+    result = set(selected_genes).difference(set(excluded_genes))
+    
+    if verbose > 0:
+        print('select_genes_mic selected {} variables in for the pairwise step'.format(len(result)))
+    
+    return result
 
 def select_genes(genes, response, threshold=0.05):
     #

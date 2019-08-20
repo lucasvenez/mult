@@ -160,7 +160,7 @@ class Dense(Model):
                                     feed_dict={self.raw_input: x[index[batch], :],
                                                self.expected_output: y[index[batch], :],
                                                self.keep_prob: self.keep_probability,
-                                               self.lr: learning_rate * .5 ** int((1 + step) / 2),
+                                               self.lr: max(learning_rate * np.exp(-.01 * step), 1e-5),
                                                self.training: True})
                     train_log = outputs[0]
                     

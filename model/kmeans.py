@@ -167,5 +167,3 @@ class OptimizedKMeans(object):
     def fit_predict(self, x):
         self.fit(x)
         return self.predict(x)
-        
- 
