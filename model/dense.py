@@ -252,17 +252,23 @@ class Dense(Model):
                     model_function = model.name.split('_')[-1].split(':')[0]
                     
                     optimizer = model.name.split('_')[-2]
-
+                    
+                    for op in tf.get_default_graph().get_operations():
+                        if 'hidden_{}_{}_layer_'.format(optimizer, model_function) in op.name:
+                            if '/{}'.format(model_function.title()) in op.name:
+                                if '/{}_grad/'.format(model_function.title()) not in op.name:
+                                    tf.get_default_graph().get_tensor_by_name(op.name + ':0')
+                    
                     self.abstract_representation.append(
                         [tf.get_default_graph().get_tensor_by_name(op.name + ':0')
                          for op in tf.get_default_graph().get_operations() 
                          if 'hidden_{}_{}_layer_'.format(optimizer, model_function) in op.name and
                             '/{}'.format(model_function.title()) in op.name and
-                            'grad' not in op.name])
+                            '/{}_grad/'.format(model_function.title()) not in op.name])
 
                 self.n_hidden_layers = len(self.abstract_representation[-1])
 
-                self.n_hidden_nodes = self.abstract_representation[-1][-1].shape[1]
+                self.n_hidden_nodes = self.abstract_representation[-1][-1].shape[-1]
 
     def build(self, 
               n_input_features,

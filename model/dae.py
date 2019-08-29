@@ -74,7 +74,7 @@ class DenoisingAutoencoder(Model):
                     shape=tf.shape(self.input), minval=0.0, maxval=1.0,
                     dtype=tf.float32, seed=None, name=None)
                 
-                prob = tf.where(prob <= 1. - self.keep_probability, 
+                prob = tf.where(prob < 1. - self.keep_probability, 
                                 tf.ones_like(self.input, dtype=tf.float32),
                                 tf.zeros_like(self.input, dtype=tf.float32))
 
