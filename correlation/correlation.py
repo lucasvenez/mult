@@ -34,7 +34,7 @@ def select_genes_mic(genes, response, threshold=0.05, verbose=0):
     
     threshold = np.quantile(gene_table['score'].values, 1 - threshold)
     
-    selected_genes = list(gene_table[gene_table['score'] >= threshold].sort_values(by='score').index)
+    selected_genes = list(gene_table[gene_table['score'] >= threshold].sort_values(by='score', ascending=False).index)
     
     if verbose > 0:
         print('select_genes_mic selected {} variables in for the correlation step'.format(len(selected_genes)))
@@ -47,12 +47,14 @@ def select_genes_mic(genes, response, threshold=0.05, verbose=0):
         
         excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .75)[0]].columns)
     
-    result = set(selected_genes).difference(set(excluded_genes))
+    selected_genes = [s for s in selected_genes if s not in excluded_genes]
+    
+    mics = [gene_table.loc[s, 'score'] for s in selected_genes]
     
     if verbose > 0:
         print('select_genes_mic selected {} variables in for the pairwise step'.format(len(result)))
     
-    return result
+    return selected_genes, mics
 
 def select_genes(genes, response, threshold=0.05):
     #
@@ -90,7 +92,11 @@ def select_genes(genes, response, threshold=0.05):
         
         excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .75)[0]].columns)
     
-    return set(selected_genes).difference(set(excluded_genes))
+    result = [s for s in selected_genes if s not in excluded_genes]
+    
+    pvalues = [gene_table.loc[s, 'score'] for s in result]
+    
+    return result, pvalues
 
 def compute(dataset, dependent_variable_names, func):
 

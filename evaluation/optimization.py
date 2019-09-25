@@ -1,10 +1,11 @@
+from sklearn.metrics import confusion_matrix, roc_auc_score
 import numpy as np
 
 def optimize_threshold(y_true, y_, by=0.01):
 
     t, max_metric = None, -np.inf
 
-    for i in np.arange(0.00, max(y_), by):
+    for i in np.arange(min(y_), max(y_), by):
 
         y_hat = np.copy(y_)
 
