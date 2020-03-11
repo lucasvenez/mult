@@ -63,7 +63,8 @@ class GeneticClustering(object):
 
     def fit(self, x):
         
-        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, min_n_observations=1,
+        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, 
+                                     min_n_observations=1, max_n_clusters=x.shape[0] - 1,
                                      optimization_output_path=self.optimization_output_file_path, random_state=self.random_state)
         
         self.cluster_mapping = self.model.fit_predict(x.T)

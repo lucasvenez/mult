@@ -18,6 +18,4 @@ p <-
   ylab('Count') +
   theme(text=element_text(size=11, family='serif'))
 
-p
-
 ggsave('images/derivated_dep_vars.pdf', p, units='cm', width=16, height=8)

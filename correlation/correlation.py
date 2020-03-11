@@ -1,5 +1,6 @@
 from minepy import MINE
 from scipy.stats import ks_2samp
+from scipy.stats import kruskal
 #from rpy2.robjects.packages import importr
 
 import multiprocessing
@@ -71,13 +72,14 @@ def select_genes(genes, response, threshold=0.05):
     for c in genes:
 
         gene_values = genes[c].values
-
-        if len(gene_values[response == 0]) > 0 and len(gene_values[response == 1]) > 0:
-
-            ks_pvalue = ks_2samp(gene_values[response == 0], gene_values[response == 1])[1]
-
+        negatives = gene_values[response == 0]
+        positivies = gene_values[response == 1]
+        if len(negatives) > 0 and len(positivies) > 0:
+            try:
+                ks_pvalue = kruskal(negatives, positivies)[1]
+            except ValueError:
+                ks_pvalue = 1.0
             gene_table['variable'].append(c)
-
             gene_table['score'].append(ks_pvalue)
 
     gene_table = pd.DataFrame(gene_table).set_index('variable')
@@ -90,7 +92,7 @@ def select_genes(genes, response, threshold=0.05):
         
         gene_pearson = pairwise_pearson.loc[[g],:].iloc[:, (gi+1):]
         
-        excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .75)[0]].columns)
+        excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .95)[0]].columns)
     
     result = [s for s in selected_genes if s not in excluded_genes]
     
@@ -237,7 +239,7 @@ def wilcox(pair):
         
         return None
 
-
+'''
 def kruskal(pair):
 
     assert len(pair) == 4 and isinstance(pair, tuple)
@@ -271,7 +273,7 @@ def kruskal(pair):
     except:
         
         return None
-
+'''
 
 def distcorr(pair):
 

@@ -1,7 +1,12 @@
 from model import Model
+
 import tensorflow as tf
 import numpy as np
 import os
+
+import multiprocessing
+import time
+import pandas as pd
 
 
 class DenoisingAutoencoder(Model):
@@ -9,36 +14,35 @@ class DenoisingAutoencoder(Model):
 
     """
 
-    def __init__(self, model_name=None, summaries_dir='pretrained', verbose=0):
+    def __init__(self, model_name=None, summaries_dir='pretrained', verbose=0, random_state=None):
         """
 
         :param model_name:
         :param summaries_dir:
         :param verbose:
         """
+        assert random_state is None or isinstance(random_state, int), \
+            'invalid value for random_state parameter, which should be None or integer'
 
         self.verbose = verbose
-        
         self.early_stopping_rounds = None
-        
         self.graph = tf.Graph()
-        
         self.add_summaries = summaries_dir is not None
-        
         self.batch_size = None
-            
         self.layer_index = None
-        
         self.summaries_dir = summaries_dir
-        
         self.model_name = model_name
+        self.random_state = random_state
         
         with self.graph.as_default():
-
             self.session = tf.Session(graph=self.graph)
 
-    def build(self, n_inputs, encoder_units=(128,), decoder_units=(128,), 
-              encoder_activation_function='sigmoid', decoder_activation_function='identity', l2_scale=1e-4):
+    def build(self, n_inputs, 
+              encoder_units=(128,), 
+              decoder_units=(128,), 
+              encoder_activation_function='sigmoid', 
+              decoder_activation_function='identity', 
+              l2_scale=1e-4):
         """
 
         :param n_inputs:
@@ -57,7 +61,12 @@ class DenoisingAutoencoder(Model):
             'decoder_units should tuple with at least one element'
         
         with self.graph.as_default():
-
+            
+            if self.random_state is not None:
+                tf.set_random_seed(self.random_state)
+                tf.random.set_random_seed(self.random_state)
+                np.random.seed(self.random_state)
+            
             self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
 
             self.keep_probability = tf.placeholder(tf.float32, name='keep_probability')
@@ -68,11 +77,11 @@ class DenoisingAutoencoder(Model):
 
                 mask = tf.random_normal(
                     shape=tf.shape(self.input), mean=0.0, stddev=0.1,
-                    dtype=tf.float32, seed=None, name=None)
+                    dtype=tf.float32, name=None, seed=self.random_state)
 
                 prob = tf.random_uniform(
                     shape=tf.shape(self.input), minval=0.0, maxval=1.0,
-                    dtype=tf.float32, seed=None, name=None)
+                    dtype=tf.float32, name=None, seed=self.random_state)
                 
                 prob = tf.where(prob < 1. - self.keep_probability, 
                                 tf.ones_like(self.input, dtype=tf.float32),
@@ -124,7 +133,7 @@ class DenoisingAutoencoder(Model):
             self.saver = tf.train.Saver()
 
     def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True,
-            optimizer='sgd', loss='mse', early_stopping_rounds=1000):
+            optimizer='sgd', loss='mse', early_stopping_rounds=1000, random_state=None):
         """
 
         :param x:
@@ -165,7 +174,7 @@ class DenoisingAutoencoder(Model):
             self.batch_size = batch_size
 
             with self.graph.as_default():
-
+                
                 #
                 #
                 #
@@ -207,6 +216,8 @@ class DenoisingAutoencoder(Model):
                             np.random.shuffle(index)
 
                         batch = list(range(current_block, (min(current_block + batch_size, n_rows))))
+                        
+                        rs = None if random_state is None else [int(random_state + step), int(random_state + step)]
 
                         loss_value = self.session.run([self.optimizer, self.loss],
                                                         feed_dict={self.input: x[index[batch], :],
@@ -265,7 +276,8 @@ class DenoisingAutoencoder(Model):
         while start < x.shape[0]:
 
             with self.graph.as_default():
-                x_ = self.session.run([self.decoder], feed_dict={self.input: x[start:end, :], self.keep_probability: 1.0})[0]
+                x_ = self.session.run([self.decoder], feed_dict={self.input: x[start:end, :], 
+                                                                 self.keep_probability: 1.0})[0]
 
             if x_line is None:
                 x_line = x_
@@ -296,7 +308,8 @@ class DenoisingAutoencoder(Model):
             while start < x.shape[0]:
 
                 x_ = self.session.run([self.encoder],
-                                      feed_dict={self.input: x[start:end, :], self.keep_probability: 1.0})[0]
+                                      feed_dict={self.input: x[start:end, :], 
+                                                 self.keep_probability: 1.0})[0]
 
                 if x_line is None:
                     x_line = x_
@@ -326,7 +339,8 @@ class DenoisingAutoencoder(Model):
 
             with self.graph.as_default():
                 x_ = self.session.run([tf.reduce_sum(tf.square(self.input - self.decoder), axis=1)],
-                                      feed_dict={self.input: x[start:end, :], self.keep_probability: 1.0})[0]
+                                      feed_dict={self.input: x[start:end, :], 
+                                                 self.keep_probability: 1.0})[0]
 
             if x_line is None:
                 x_line = x_
@@ -459,3 +473,44 @@ class DenoisingAutoencoder(Model):
         with self.graph.as_default():
             self.session.close()
         tf.reset_default_graph()
+
+# Denoising Autoencoder
+
+def train_dda_model(params):
+
+    genefpkm_train, genefpkm_valid, RANDOM_STATE, i = params
+
+    dae_prefix = 'data_augmentation_adadelta_fold'
+
+    dae = DenoisingAutoencoder(model_name='{}_{}'.format(dae_prefix, i), 
+                               summaries_dir='output/brfl/deep_models/', verbose=1,
+                               random_state=RANDOM_STATE);
+
+    dae.build(n_inputs=genefpkm_train.shape[1], 
+              encoder_units=(int(genefpkm_train.shape[1] * .5), int(genefpkm_train.shape[1] * .4), 
+                            int(genefpkm_train.shape[1] * .3)), 
+              decoder_units=(int(genefpkm_train.shape[1] * .4), int(genefpkm_train.shape[1] * .5)), 
+              encoder_activation_function='relu', decoder_activation_function='identity', l2_scale=0.01);
+
+    dae.fit(genefpkm_train.values, steps=50000, optimizer='adadelta', 
+            loss='mse', learning_rate=1e-4);
+
+    dae.load('output/brfl/deep_models/' + '{0}_{1}/graph/{0}_{1}'.format(dae_prefix, i))
+    
+    dda_train = dae.predict(genefpkm_train.values)
+    dda_valid = dae.predict(genefpkm_valid.values)
+        
+    dae.close()
+    del dae
+    
+    return dda_train, dda_valid
+
+
+def dae_wrapper(train, valid, RANDOM_STATE, i):
+    with multiprocessing.Pool() as pool:
+        return pool.map(train_dda_model, [(train, valid, RANDOM_STATE, i)])[0]
+    
+    # from numba import cuda
+    # cuda.select_device(0)
+    # cuda.close()
+        

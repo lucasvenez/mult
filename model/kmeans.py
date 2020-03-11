@@ -61,7 +61,10 @@ class OptimizedKMeans(object):
             # This gives a perspective into the density and separation of the formed
             # clusters
             #
-            silhouette_avg = silhouette_score(x, cluster_labels)
+            try:
+                silhouette_avg = silhouette_score(x, cluster_labels)
+            except ValueError:
+                break
 
             #
             # Compute the silhouette scores for each sample
