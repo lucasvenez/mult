@@ -76,7 +76,7 @@ def select_genes(genes, response, threshold=0.05):
         positivies = gene_values[response == 1]
         if len(negatives) > 0 and len(positivies) > 0:
             try:
-                ks_pvalue = kruskal(negatives, positivies)[1]
+                ks_pvalue = ks_2samp(negatives, positivies)[1]
             except ValueError:
                 ks_pvalue = 1.0
             gene_table['variable'].append(c)

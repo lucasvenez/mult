@@ -478,22 +478,23 @@ class DenoisingAutoencoder(Model):
 
 def train_dda_model(params):
 
-    genefpkm_train, genefpkm_valid, RANDOM_STATE, i = params
+    genefpkm_train, genefpkm_valid, RANDOM_STATE, i, predict = params
 
-    dae_prefix = 'data_augmentation_adadelta_fold'
+    dae_prefix = 'data_augmentation_adadelta_'
 
     dae = DenoisingAutoencoder(model_name='{}_{}'.format(dae_prefix, i), 
                                summaries_dir='output/brfl/deep_models/', verbose=1,
                                random_state=RANDOM_STATE);
+    if not predict:
+        
+        dae.build(n_inputs=genefpkm_train.shape[1], 
+                  encoder_units=(int(genefpkm_train.shape[1] * .5), int(genefpkm_train.shape[1] * .4), 
+                                int(genefpkm_train.shape[1] * .3)), 
+                  decoder_units=(int(genefpkm_train.shape[1] * .4), int(genefpkm_train.shape[1] * .5)), 
+                  encoder_activation_function='relu', decoder_activation_function='identity', l2_scale=0.01);
 
-    dae.build(n_inputs=genefpkm_train.shape[1], 
-              encoder_units=(int(genefpkm_train.shape[1] * .5), int(genefpkm_train.shape[1] * .4), 
-                            int(genefpkm_train.shape[1] * .3)), 
-              decoder_units=(int(genefpkm_train.shape[1] * .4), int(genefpkm_train.shape[1] * .5)), 
-              encoder_activation_function='relu', decoder_activation_function='identity', l2_scale=0.01);
-
-    dae.fit(genefpkm_train.values, steps=50000, optimizer='adadelta', 
-            loss='mse', learning_rate=1e-4);
+        dae.fit(genefpkm_train.values, steps=50000, optimizer='adadelta', 
+                loss='mse', learning_rate=1e-4);
 
     dae.load('output/brfl/deep_models/' + '{0}_{1}/graph/{0}_{1}'.format(dae_prefix, i))
     
@@ -506,9 +507,9 @@ def train_dda_model(params):
     return dda_train, dda_valid
 
 
-def dae_wrapper(train, valid, RANDOM_STATE, i):
+def dae_wrapper(train, valid, RANDOM_STATE, i, predict=False):
     with multiprocessing.Pool() as pool:
-        return pool.map(train_dda_model, [(train, valid, RANDOM_STATE, i)])[0]
+        return pool.map(train_dda_model, [(train, valid, RANDOM_STATE, i, predict)])[0]
     
     # from numba import cuda
     # cuda.select_device(0)
