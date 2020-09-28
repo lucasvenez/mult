@@ -1,11 +1,11 @@
 from skopt import gp_minimize
-from skopt.space import Integer, Categorical, Real
+from skopt.space import Integer, Categorical
 from skopt.utils import use_named_args
 
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import log_loss
 
-from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
 
 import numpy as np
 
@@ -13,12 +13,11 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-class MLPOptimizer(object):
+class KNNOptimizer(object):
 
     def __init__(self,
                  n_folds=3, n_calls=50, shuffle=True,
-                 fixed_parameters={}, random_state=None,
-                 verbose=-1, n_jobs=-1):
+                 fixed_parameters={}, random_state=None, verbose=-1, n_jobs=-1):
 
         self.n_calls = n_calls
         self.n_folds = n_folds
@@ -32,8 +31,8 @@ class MLPOptimizer(object):
         self.iterations = []
 
     def execute_optimization(self, objective, space):
-        params = gp_minimize(objective, space, n_calls=self.n_calls,
-                             random_state=self.random_state,
+
+        params = gp_minimize(objective, space, n_calls=self.n_calls, random_state=self.random_state,
                              verbose=(self.verbose >= 0), n_jobs=-1).x
 
         return {space[i].name: params[i] for i in range(len(space))}
@@ -43,37 +42,35 @@ class MLPOptimizer(object):
         self.iterations = []
 
         space = [
-            Integer(10, 5000, name='hidden_layer_sizes'),
-            Categorical(['constant', 'invscaling', 'adaptive'], name='learning_rate'),
-            Real(1e-5, 1e-1, name='learning_rate_init'),
-            Integer(200, 500, name='max_iter'),
-            Real(1e-5, 1e-1, name='tol')
+            Integer(1, 30, name='n_neighbors'),
+            Categorical(['uniform', 'distance'], name='weights'),
+            Integer(1, 30, name='leaf_size'),
+            Integer(1, 5, name='p')
         ]
 
         @use_named_args(space)
         def objective(
-            hidden_layer_sizes,
-            learning_rate,
-            learning_rate_init,
-            max_iter,
-            tol
+            n_neighbors,
+            weights,
+            leaf_size,
+            p
         ):
             try:
                 scores = []
 
                 params = {
-                    'hidden_layer_sizes': int(hidden_layer_sizes),
-                    'learning_rate': learning_rate,
-                    'learning_rate_init': learning_rate_init,
-                    'max_iter': int(max_iter),
-                    'tol': tol,
+                    'n_neighbors': int(n_neighbors),
+                    'weights': weights,
+                    'leaf_size': int(leaf_size),
+                    'p': int(p),
 
-                    'random_state': self.random_state}
+                    'n_jobs': self.n_jobs}
 
                 if isinstance(self.fixed_parameters, dict):
                     params.update(self.fixed_parameters)
 
-                skf = StratifiedKFold(self.n_folds, shuffle=self.shuffle,
+                skf = StratifiedKFold(self.n_folds,
+                                      shuffle=self.shuffle,
                                       random_state=self.random_state)
 
                 for train_index, valid_index in skf.split(x, y):
@@ -81,11 +78,11 @@ class MLPOptimizer(object):
                     x_train, y_train = x[train_index, :], y[train_index]
                     x_valid, y_valid = x[valid_index, :], y[valid_index]
 
-                    mlp = MLPClassifier(**params)
+                    knn = KNeighborsClassifier(**params)
 
-                    mlp.fit(x_train, y_train)
+                    knn.fit(x_train, y_train)
 
-                    y_valid_hat = mlp.predict(x_valid)
+                    y_valid_hat = knn.predict(x_valid)
 
                     loss_valid = log_loss(y_valid, y_valid_hat)
 

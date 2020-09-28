@@ -1,6 +1,7 @@
 from constants import FISH_VARIABLE_NAMES
 
 import pandas as pd
+import numpy as np
 import os
 
 CLINICAL_OUTCOME = 'response_best_response_first_line'
@@ -12,7 +13,9 @@ def load_data():
     clinical = pd.read_csv(os.path.join(os.path.dirname(__file__), 'clinical.tsv'), sep='\t', index_col='ID')
 
     # split fish markers
-    fish = clinical[FISH_VARIABLE_NAMES].copy()
+    fish = clinical[FISH_VARIABLE_NAMES]
+    
+    fish = fish.replace({'Not Detected': 0, 'Detected': 1})
 
     # split clinical outcomes
     outcome = clinical.iloc[:, :4].copy()
@@ -24,13 +27,36 @@ def load_data():
         del clinical[f]
         
     del clinical['therapy_first_line_class']
+    del clinical['family_cancer']
+
+    # formatting treatments
+    treatments = pd.get_dummies(clinical[['therapy_first_line']].fillna('Non-therapy'))
+    # treatments = clinical[['therapy_first_line']].fillna('Non-therapy')
+    # treatments['therapy_first_line'] = treatments['therapy_first_line'].astype('category').cat.codes
+
+    # clinical = clinical[~(clinical.isnull().sum(axis=1) > 8)]
+
+    del clinical['therapy_first_line']
     
-    treatments = pd.get_dummies(clinical[['therapy_first_line']])
-    
-    treatments.columns = [c.replace('therapy_first_line_', '') for c in treatments.columns]
+    # treatments.columns = [c.replace('therapy_first_line_', '') for c in treatments.columns]
     
     # loading and pre-processing gene expression markers
     gene_expressions = pd.read_csv(os.path.join(os.path.dirname(__file__), 'gene_count.tsv'), sep='\t', index_col='ID')
+    
+    # selecting patients with both clinical and gene expression markers
+    selected_index = clinical.join(gene_expressions, how='inner').index
+    
+    clinical = clinical.loc[selected_index]
+    fish = fish.loc[selected_index]
+    gene_expressions = gene_expressions.loc[selected_index]
+    treatments = treatments.loc[selected_index]
+    outcome = outcome[[CLINICAL_OUTCOME]].loc[selected_index]
+    
+    clinical = clinical.loc[~outcome.iloc[:, 0].isnull(), :]
+    fish = fish.loc[~outcome.iloc[:, 0].isnull(), :]
+    gene_expressions = gene_expressions.loc[~outcome.iloc[:, 0].isnull(), :]
+    treatments = treatments.loc[~outcome.iloc[:, 0].isnull(), :]
+    outcome = outcome.loc[~outcome.iloc[:, 0].isnull(), :]
     
     # removing invalid gene expressions
     for g in gene_expressions.loc[:, gene_expressions.sum() == 0].columns:
@@ -38,13 +64,32 @@ def load_data():
 
     gene_expressions = gene_expressions.dropna(axis=1, how='any')
     
-    # selecting patients with both clinical and gene expression markers
-    selected_index = clinical.join(gene_expressions, how='inner').index
-
     # removing treatment with less than 10 samples
     for treatment in treatments.loc[:, treatments.sum() < 10].columns:
-        del treatments
+        del treatments[treatment]
 
-    return clinical.loc[selected_index], fish.loc[selected_index], \
-           gene_expressions.loc[selected_index], treatment.loc[selected_index], \
-           outcome[[CLINICAL_OUTCOME]].loc[selected_index]
+    def ecog_ps_to_int(ecog_ps):
+        try:
+            for i in range(1, 5):
+                if str(i) in ecog_ps:
+                    return i
+        except:
+            pass
+        return None
+        
+    clinical['ecog_ps'] = clinical['ecog_ps'].apply(ecog_ps_to_int)
+    
+    clinical['first_line_transplant'] = clinical['first_line_transplant'].replace('Yes', 1).replace('No', 0)
+    
+    clinical['gender'] = clinical['gender'].replace('Male', 0).replace('Female', 1)
+
+    # representing categorical features as one hot encoding (dummy)
+    for c in clinical.columns:
+        if str(clinical[c].dtype) == 'object':
+            dummy = pd.get_dummies(clinical[c])
+            dummy.columns = [c.lower() + '_' + d.lower().replace('/', '_').replace(' ', '_') for d in dummy.columns]
+            clinical = pd.concat([clinical, dummy], axis=1)
+            del clinical[c]
+
+    # returning cleaned data set
+    return clinical, fish, gene_expressions, treatments, outcome

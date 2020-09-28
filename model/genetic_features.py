@@ -5,6 +5,7 @@ from collections import Counter
 import pandas as pd
 import numpy as np
 
+
 class GeneticProfiling(object):
     '''
     
@@ -23,8 +24,10 @@ class GeneticProfiling(object):
 
     def fit(self, x):
         
-        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, min_n_observations=1,
-                                     optimization_output_path=self.optimization_output_file_path, random_state=self.random_state)
+        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds,
+                                     verbose=self.verbose, min_n_observations=1,
+                                     optimization_output_path=self.optimization_output_file_path,
+                                     random_state=self.random_state)
         self.model.fit(x)
     
     def predict(self, x):
@@ -63,9 +66,12 @@ class GeneticClustering(object):
 
     def fit(self, x):
         
-        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds, verbose=self.verbose, 
-                                     min_n_observations=1, max_n_clusters=x.shape[0] - 1,
-                                     optimization_output_path=self.optimization_output_file_path, random_state=self.random_state)
+        self.model = OptimizedKMeans(early_stopping_rounds=self.early_stopping_rounds,
+                                     verbose=self.verbose,
+                                     min_n_observations=1,
+                                     max_n_clusters=x.shape[0] - 1,
+                                     optimization_output_path=self.optimization_output_file_path,
+                                     random_state=self.random_state)
         
         self.cluster_mapping = self.model.fit_predict(x.T)
         
@@ -77,7 +83,7 @@ class GeneticClustering(object):
         
         self.distances = np.min(self.model.transform(x.T), axis=1)
         
-        if self.verbose > 0:
+        if self.verbose is not None and self.verbose > 0:
             print('gene expression clustering model contains {} clusters'.format(len(self.clusters)))
         
     def transform(self, x):
@@ -91,7 +97,7 @@ class GeneticClustering(object):
             
             selected_genes = [i for i, j in enumerate(self.cluster_mapping == c) if j]
             
-            if self.verbose > 1:
+            if self.verbose is not None and self.verbose > 1:
                 print('{} selected genes for cluster {}'.format(len(selected_genes), c))
             
             x_current = x[:, selected_genes]

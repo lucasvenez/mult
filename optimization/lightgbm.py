@@ -1,75 +1,112 @@
-from optimization import BayesianOptimizer
-
+from skopt import gp_minimize
 from skopt.space import Real, Integer
 from skopt.utils import use_named_args
+
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import log_loss
 
-from lightgbm import LGBMModel, Dataset
+from lightgbm import LGBMModel
 
+import pandas as pd
 import numpy as np
 
 import warnings
 warnings.filterwarnings("ignore")
 
 
-class LightGBMOptimizer(BayesianOptimizer):
+class LightGBMOptimizer(object):
 
-    def __init__(self, n_folds=3, n_calls=50, shuffle=True, early_stopping_rounds=None,
-                 random_state=None, verbose=-1, n_jobs=-1, use_gpu=False):
-        super().__init__(n_folds, n_calls, shuffle, early_stopping_rounds, random_state, verbose, n_jobs)
+    def __init__(self,
+                 n_folds=3, n_calls=50, shuffle=True, early_stopping_rounds=None,
+                 fixed_parameters=None, random_state=None, verbose=-1, n_jobs=-1, use_gpu=False):
+
+        self.n_calls = n_calls
+        self.n_folds = n_folds
+        self.random_state = random_state
+        self.shuffle = shuffle
+        self.verbose = verbose
+        self.n_jobs = n_jobs
+        self.optimization_details = {}
+        self.early_stopping_rounds = early_stopping_rounds
+        self.fixed_parameters = fixed_parameters if fixed_parameters is not None else dict()
         self.use_gpu = use_gpu
+
+        self.iterations = []
+
+    def execute_optimization(self, objective, space):
+        params = gp_minimize(objective, space, n_calls=self.n_calls, random_state=self.random_state,
+                             verbose=(self.verbose >= 0), n_jobs=-1).x
+
+        return {space[i].name: params[i] for i in range(len(space))}
 
     def optimize(self, x, y):
 
+        assert isinstance(x, pd.DataFrame) or isinstance(x, np.ndarray), \
+            'x should be a pd.DataFrame or np.ndarray'
+
+        assert isinstance(y, pd.DataFrame) or isinstance(y, pd.Series) or isinstance(y, np.ndarray), \
+            'y should be a pd.DataFrame or pd.Series or np.ndarray'
+
+        if isinstance(x, pd.DataFrame):
+            x = x.values
+
+        if isinstance(y, pd.DataFrame) or isinstance(y, pd.Series):
+            y = y.values
+
+        self.iterations = []
+
         space = [
-            Real(1e-6, 1e-1, 'log-uniform', name='learning_rate'),
-            Integer(4, 512, name='num_leaves'),
-            Integer(4, 20, name='max_depth'),
-            Real(0.01, 1.00, name='scale_pos_weight'),
-            Real(0.01, 1.00, name='min_child_weight'),
-            Real(0.10, 1.00, name='colsample_bytree'),
-            Real(0.001, 100, 'log-uniform', name='min_split_gain'),
-            Integer(1, 1000, name='min_child_samples'),
-            Real(0.01, 0.99, name='subsample'),
-            Integer(200000, 800000, name='bin_construct_sample_cnt')]
+            Integer(2, 4, name='num_leaves'),
+            Real(1e-1, 1.000, name='scale_pos_weight'),
+            Real(1e-1, 1.000, name='colsample_bytree'),
+            Integer(2, 50, name='min_child_samples'),
+            Integer(2000, 8000, name='bin_construct_sample_cnt'),
+            Integer(2, 512, name='max_bin'),
+            Real(1e-3, 1, name='min_sum_hessian_in_leaf'),
+            Real(1e-3, 1, name='bagging_fraction'),
+            Real(0.01, 1, name='feature_fraction'),
+            Real(0.01, 1, name='feature_fraction_bynode'),
+        ]
 
         @use_named_args(space)
         def objective(
-                      learning_rate,
-                      num_leaves,
-                      max_depth,
-                      scale_pos_weight,
-                      min_child_weight,
-                      colsample_bytree,
-                      min_split_gain,
-                      min_child_samples,
-                      subsample,
-                      bin_construct_sample_cnt):
+            num_leaves,
+            scale_pos_weight,
+            colsample_bytree,
+            min_child_samples,
+            bin_construct_sample_cnt,
+            max_bin,
+            min_sum_hessian_in_leaf,
+            bagging_fraction,
+            feature_fraction,
+            feature_fraction_bynode,
+        ):
             try:
                 scores = []
 
                 params = {
-                    'learning_rate': learning_rate,
                     'num_leaves': int(num_leaves),
-                    'max_depth': int(max_depth),
                     'scale_pos_weight': scale_pos_weight,
-                    'min_child_weight': min_child_weight,
-
                     'colsample_bytree': colsample_bytree,
-                    'min_split_gain': min_split_gain,
                     'min_child_samples': int(min_child_samples),
-                    'subsample': subsample,
                     'bin_construct_sample_cnt': int(bin_construct_sample_cnt),
+                    'max_bin': int(max_bin),
+                    'min_sum_hessian_in_leaf': min_sum_hessian_in_leaf,
+                    'bagging_fraction': bagging_fraction,
+                    'feature_fraction': feature_fraction,
+                    'feature_fraction_bynode': feature_fraction_bynode,
 
                     'n_jobs': self.n_jobs,
                     'silent': self.verbose < 1,
                     'random_state': self.random_state}
 
-                params.update(super().fixed_parameters)
+                if isinstance(self.fixed_parameters, dict):
+                    params.update(self.fixed_parameters)
 
                 if self.use_gpu:
                     params.update({'device': 'gpu', 'gpu_platform_id': 1, 'gpu_device_id': 0})
+
+                params.update({'metric': 'binary_logloss'})
 
                 skf = StratifiedKFold(
                     self.n_folds, shuffle=self.shuffle, random_state=self.random_state)
@@ -81,18 +118,29 @@ class LightGBMOptimizer(BayesianOptimizer):
 
                     gbm = LGBMModel(**params)
 
-                    gbm.fit(x_train, y_valid,
-                            eval_set=Dataset(x_valid, y_valid),
+                    gbm.fit(x_train, y_train,
+                            eval_set=[(x_valid, y_valid)],
                             early_stopping_rounds=self.early_stopping_rounds,
                             verbose=int(self.verbose > 0))
 
-                    y_hat = gbm.predict(x_valid)
+                    y_valid_hat = gbm.predict(x_valid)
 
-                    scores.append(roc_auc_score(y_valid, y_hat))
+                    loss_valid = log_loss(y_valid, y_valid_hat)
 
-                return -np.mean([s for s in scores if s is not None])
+                    scores.append(loss_valid)
 
-            except ValueError:
-                return 0.0
+                result = np.mean(scores)
 
-        return super().execute_optimization(objective, space)
+                self.iterations.append((params, result))
+
+                return result
+
+            except Exception as e:
+                import os, sys
+                print(str(e))
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                print(exc_type, fname, exc_tb.tb_lineno)
+                raise e
+
+        return self.execute_optimization(objective, space)

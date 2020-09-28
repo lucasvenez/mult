@@ -1,26 +1,43 @@
+from optimization import LightGBMOptimizer, SVMOptimizer, LogisticRegressionOptimizer, \
+    KNNOptimizer, MLPOptimizer, RFOptimizer
+
+from pipeline import SelectMarker
+
 from lightgbm import LGBMModel, Dataset
-from optimization import BayesianOptimizer
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+
+import numpy as np
 
 
-class SMLA(object):
+class SMLA(SelectMarker):
     
     def __init__(self,
-                 optimizer_callable, model_callable,
-                 optimizer_default_params={}, model_default_params={},
+                 predictor,
+                 optimizer_default_params=None,
+                 model_default_params=None,
                  verbose=-1,
                  random_state=None,
-                 use_gpu=False):
+                 use_gpu=False,
+                 test_size=.2,
+                 n_gene_limit=None):
 
-        assert isinstance(optimizer_default_params, dict)
-        assert isinstance(model_default_params, dict)
-        assert issubclass(optimizer_callable, BayesianOptimizer)
+        assert isinstance(optimizer_default_params, dict) or optimizer_default_params is None
+        assert isinstance(model_default_params, dict) or model_default_params is None
 
         #
-        self.model_callable = model_callable
+        self.predictor = predictor
         self.model_default_params = model_default_params
 
         #
-        self.optimizer_callable = optimizer_callable
+        self.optimized_params = None
         self.optimizer_default_params = optimizer_default_params
 
         #
@@ -31,32 +48,166 @@ class SMLA(object):
         self.random_state = random_state
         self.verbose = verbose
         self.use_gpu = use_gpu
-    
-    def fit(self, x, y, x_valid=None, y_valid=None, early_stopping_rounds=None):
+
+        #
+        self.test_size = test_size
+
+        #
+        self.scaler = MinMaxScaler()
+
+        #
+        self.n_gene_limit = n_gene_limit
+        self.selected_clinical = None
+        self.selected_genes = None
+
+        #
+        if self.predictor == 'lightgbm':
+            self.optimizer = LightGBMOptimizer(**self.optimizer_default_params)
+
+        elif self.predictor == 'svm':
+            self.optimizer = SVMOptimizer(**self.optimizer_default_params)
+
+        elif self.predictor == 'knn':
+            self.optimizer = KNNOptimizer(**self.optimizer_default_params)
+
+        elif self.predictor == 'lr':
+            self.optimizer = LogisticRegressionOptimizer(**self.optimizer_default_params)
+
+        elif self.predictor == 'mlp':
+            self.optimizer = MLPOptimizer(**self.optimizer_default_params)
+
+        elif self.predictor == 'rf':
+            self.optimizer = RFOptimizer(**self.optimizer_default_params)
+
+        else:
+            raise ValueError('predictor should be one of the following: lightgbm, svm, knn, lr, or mlp')
+
+    def fit(self, clinical_markers, genes, treatments, clinical_outcome,
+            clinical_marker_selection_threshold,
+            genes_marker_selection_threshold,
+            early_stopping_rounds=None):
+
+        ######
+
+        self.selected_clinical = self.select_markers(
+            clinical_markers, clinical_outcome, threshold=clinical_marker_selection_threshold)
+
+        self.selected_genes = self.select_markers(
+            genes, clinical_outcome, threshold=genes_marker_selection_threshold)
+
+        clinical_markers = clinical_markers.loc[:, self.selected_clinical[0]].join(treatments)
+        genes = genes.loc[:, self.selected_genes[0]]
+
+        x, y = clinical_markers.join(genes, how='inner').fillna(0).values, clinical_outcome.values
+
+        x = self.scaler.fit_transform(x)
+
+        ######
 
         self.fitted_shape = x.shape
 
-        optimizer = self.optimizer_callable(**self.optimizer_default_params)
+        self.optimized_params = self.optimizer.optimize(x, y)
 
-        params = optimizer.optimize(x, y)
+        self.optimized_params['random_state'] = self.random_state
 
-        self.model = self.model_callable(**params)
+        self.optimized_params['n_jobs'] = -1
 
-        if x_valid is not None and y_valid is not None:
-            if issubclass(self.model_callable, LGBMModel):
-                self.model.fit(x, y,
-                               eval_set=Dataset(x_valid, y_valid),
-                               early_stopping_rounds=early_stopping_rounds,
-                               verbose=self.verbose)
-            else:
-                raise NotImplementedError(str(self.model_callable))
+        if self.model_default_params is not None:
+            self.optimized_params.update(self.model_default_params)
+
+        if self.predictor == 'lightgbm':
+            self.fit_lightgbm(x, y, early_stopping_rounds)
+
+        elif self.predictor == 'svm':
+            self.fit_svm(x, y)
+
+        elif self.predictor == 'knn':
+            self.fit_knn(x, y)
+
+        elif self.predictor == 'lr':
+            self.fit_lr(x, y)
+
+        elif self.predictor == 'mlp':
+            self.fit_mlp(x, y, early_stopping_rounds)
+
+        elif self.predictor == 'rf':
+            self.fit_rf(x, y)
+
+    def fit_rf(self, x, y):
+
+        self.model = RandomForestClassifier(**self.optimized_params)
+
+        self.model.fit(x, y)
+
+    def fit_lightgbm(self, x, y, early_stopping_rounds):
+
+        self.model = LGBMModel(**self.optimized_params)
+
+        if early_stopping_rounds is not None:
+
+            x_valid, y_valid = train_test_split(x, stratify=y, shuffle=True,
+                                                test_size=self.test_size, random_state=self.random_state)
+
+            self.model.fit(x, y,
+                           eval_set=Dataset(x_valid, y_valid),
+                           early_stopping_rounds=early_stopping_rounds,
+                           verbose=self.verbose)
 
         else:
             self.model.fit(x, y)
 
-    def predict(self, x):
+    def fit_svm(self, x, y):
+
+        del self.optimized_params['n_jobs']
+
+        self.model = SVC(**self.optimized_params, probability=True)
+
+        self.model.fit(x, y)
+
+    def fit_lr(self, x, y):
+
+        self.model = LogisticRegression(**self.optimized_params)
+
+        self.model.fit(x, y)
+
+    def fit_mlp(self, x, y, early_stopping_rounds):
+
+        esr = early_stopping_rounds is not None and early_stopping_rounds > 0
+
+        del self.optimized_params['n_jobs']
+
+        self.model = MLPClassifier(**self.optimized_params,
+                                   early_stopping=esr,
+                                   validation_fraction=self.test_size)
+
+        self.model.fit(x, y)
+
+    def fit_knn(self, x, y):
+
+        del self.optimized_params['random_state']
+
+        self.model = KNeighborsClassifier(**self.optimized_params)
+
+        self.model.fit(x, y)
+
+    def predict(self, clinical_markers, genes, treatments):
+
+        clinical_markers = clinical_markers.loc[:, self.selected_clinical[0]].join(treatments)
+        genes = genes.loc[:, self.selected_genes[0]]
+
+        x = clinical_markers.join(genes, how='inner').fillna(0).values
+
+        x = np.maximum(0, np.minimum(1, self.scaler.transform(x)))
 
         assert x.shape[1] == self.fitted_shape[1], \
             'new data should have same number of features used to fit model'
 
-        return self.model.predict(x)
+        if self.predictor == 'lightgbm':
+            result = self.model.predict(x)
+        else:
+            result = self.model.predict_proba(x)
+
+        if len(result.shape) > 1:
+            result = result[:, -1]
+
+        return result

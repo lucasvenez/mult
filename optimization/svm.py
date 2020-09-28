@@ -1,9 +1,8 @@
-from optimization import BayesianOptimizer
-
+from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import log_loss
 
 from sklearn.svm import SVC
 import numpy as np
@@ -16,7 +15,26 @@ def sigmoid(x, alpha=1.):
     return 1. / (1. + np.exp(-alpha * x))
 
 
-class SVMOptimizer(BayesianOptimizer):
+class SVMOptimizer(object):
+
+    def __init__(self,
+                 n_folds=3, n_calls=50, shuffle=True, early_stopping_rounds=None,
+                 fixed_parameters={}, random_state=None, verbose=-1, n_jobs=-1):
+        self.n_calls = n_calls
+        self.n_folds = n_folds
+        self.random_state = random_state
+        self.shuffle = shuffle
+        self.verbose = verbose
+        self.n_jobs = n_jobs
+        self.optimization_details = {}
+        self.early_stopping_rounds = early_stopping_rounds
+        self.fixed_parameters = fixed_parameters
+
+    def execute_optimization(self, objective, space):
+        params = gp_minimize(objective, space, n_calls=self.n_calls, random_state=self.random_state,
+                             verbose=(self.verbose >= 0), n_jobs=self.n_jobs).x
+
+        return {space[i].name: params[i] for i in range(len(space))}
 
     def optimize(self, x, y):
 
@@ -38,7 +56,8 @@ class SVMOptimizer(BayesianOptimizer):
                     'kernel': kernel,
                     'random_state': self.random_state}
 
-                params.update(super().fixed_parameters)
+                if isinstance(self.fixed_parameters, dict):
+                    params.update(self.fixed_parameters)
 
                 skf = StratifiedKFold(
                     self.n_folds, shuffle=self.shuffle, random_state=self.random_state)
@@ -47,11 +66,13 @@ class SVMOptimizer(BayesianOptimizer):
 
                     try:
                         x_train, y_train = x[train_index, :], y[train_index, 0]
+
                     except IndexError:
                         x_train, y_train = x[train_index, :], y[train_index].reshape(-1,)
 
                     try:
                         x_valid, y_valid = x[valid_index, :], y[valid_index, 0]
+
                     except IndexError:
                         x_valid, y_valid = x[valid_index, :], y[valid_index].reshape(-1,)
 
@@ -61,11 +82,12 @@ class SVMOptimizer(BayesianOptimizer):
 
                     y_hat = sigmoid(svm.predict(x_valid))
 
-                    scores.append(roc_auc_score(y_valid, y_hat))
+                    scores.append(log_loss(y_valid, y_hat))
 
-                return -np.mean([s for s in scores if s is not None])
+                return np.mean(scores)
 
             except ValueError:
-                return 0.0
 
-        return super().execute_optimization(objective, space)
+                return np.inf
+
+        return self.execute_optimization(objective, space)

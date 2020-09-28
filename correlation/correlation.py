@@ -1,17 +1,27 @@
-from minepy import MINE
+from multiprocessing import Pool
 from scipy.stats import ks_2samp
 from scipy.stats import kruskal
-#from rpy2.robjects.packages import importr
+from scipy.stats import entropy
+from minepy import MINE
 
 import multiprocessing
-import pandas as pd
-#import pandas.rpy.common as com
+
 import scipy.spatial.distance as distance
 import scipy.stats as statistical
 
+import pandas as pd
 import numpy as np
-#stats = importr('stats')
-#base = importr('base')
+
+
+def entropy_stats(values):
+
+    if isinstance(values, list) or isinstance(values, np.ndarray):
+        values = pd.Series(values)
+
+    assert isinstance(values, pd.Series)
+
+    return entropy(values.value_counts(), base=2)
+
 
 def select_genes_mic(genes, response, threshold=0.05, verbose=0):
     #
@@ -44,18 +54,47 @@ def select_genes_mic(genes, response, threshold=0.05, verbose=0):
     
     for gi, g in enumerate(selected_genes[:-1]):
         
-        gene_pearson = pairwise_pearson.loc[[g],:].iloc[:, (gi+1):]
-        
-        excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .75)[0]].columns)
+        gene_pearson = pairwise_pearson.loc[[g], :].iloc[:, (gi+1):]
+
+        excluded_genes += list(gene_pearson.loc[:, (gene_pearson.values > .75)[0]].columns)
     
     selected_genes = [s for s in selected_genes if s not in excluded_genes]
     
     mics = [gene_table.loc[s, 'score'] for s in selected_genes]
     
     if verbose > 0:
-        print('select_genes_mic selected {} variables in for the pairwise step'.format(len(result)))
+        print('select_genes_mic selected {} variables in for the pairwise step'.format(len(mics)))
     
     return selected_genes, mics
+
+
+def kruskal_pvalue(i):
+
+    var, negatives, positives = i
+
+    try:
+        p = kruskal(negatives, positives)[1]
+    except ValueError:
+        p = 1.0
+
+    e = entropy_stats(list(negatives) + list(positives))
+
+    return var, p, e
+
+
+def ks2samp_pvalue(i):
+
+    var, negatives, positives = i
+
+    try:
+        p = ks_2samp(negatives, positives)[1]
+    except ValueError:
+        p = 1.0
+
+    e = entropy_stats(list(negatives) + list(positives))
+
+    return var, p, e
+
 
 def select_genes(genes, response, threshold=0.05):
     #
@@ -64,41 +103,57 @@ def select_genes(genes, response, threshold=0.05):
     
     excluded_genes = []
     
-    gene_table = {'variable': [], 'score': []}
+    gene_table = {'variable': [], 'score': [], 'entropy': []}
     
     if isinstance(response, pd.DataFrame):
         response = response.values
-    
+
+    inputs = []
+
     for c in genes:
 
         gene_values = genes[c].values
         negatives = gene_values[response == 0]
-        positivies = gene_values[response == 1]
-        if len(negatives) > 0 and len(positivies) > 0:
-            try:
-                ks_pvalue = ks_2samp(negatives, positivies)[1]
-            except ValueError:
-                ks_pvalue = 1.0
-            gene_table['variable'].append(c)
-            gene_table['score'].append(ks_pvalue)
+        positives = gene_values[response == 1]
+
+        if len(negatives) > 0 and len(positives) > 0:
+            inputs.append((c, negatives, positives))
+
+    with Pool(10) as pool:
+        results = pool.map(ks2samp_pvalue, inputs)
+
+    for r in results:
+
+        var, pvalue, e = r
+
+        gene_table['variable'].append(var)
+
+        gene_table['score'].append(pvalue)
+
+        gene_table['entropy'].append(e)
 
     gene_table = pd.DataFrame(gene_table).set_index('variable')
     
     selected_genes = list(gene_table[gene_table['score'] < threshold].sort_values(by='score').index)
-    
+
+    print(len(selected_genes))
+
     pairwise_pearson = genes[selected_genes].corr().abs()
     
     for gi, g in enumerate(selected_genes[:-1]):
         
         gene_pearson = pairwise_pearson.loc[[g],:].iloc[:, (gi+1):]
         
-        excluded_genes += list(gene_pearson.loc[:,(gene_pearson.values > .95)[0]].columns)
+        excluded_genes += list(gene_pearson.loc[:, (gene_pearson.values > .95)[0]].columns)
     
     result = [s for s in selected_genes if s not in excluded_genes]
     
     pvalues = [gene_table.loc[s, 'score'] for s in result]
+
+    es = [gene_table.loc[s, 'entropy'] for s in result]
     
-    return result, pvalues
+    return result, pvalues, es
+
 
 def compute(dataset, dependent_variable_names, func):
 
@@ -239,6 +294,7 @@ def wilcox(pair):
         
         return None
 
+
 '''
 def kruskal(pair):
 
@@ -274,6 +330,7 @@ def kruskal(pair):
         
         return None
 '''
+
 
 def distcorr(pair):
 

@@ -33,6 +33,7 @@ class DenoisingAutoencoder(Model):
         self.summaries_dir = summaries_dir
         self.model_name = model_name
         self.random_state = random_state
+        self.best_error = np.inf
         
         with self.graph.as_default():
             self.session = tf.Session(graph=self.graph)
@@ -132,8 +133,12 @@ class DenoisingAutoencoder(Model):
                 
             self.saver = tf.train.Saver()
 
+    @staticmethod
+    def decay(step, rate, initial_learning_rate):
+        return (1 / (1 + rate * step)) * initial_learning_rate
+
     def fit(self, x, keep_probability=0.75, learning_rate=1e-4, steps=10000, batch_size=None, shuffle=True,
-            optimizer='sgd', loss='mse', early_stopping_rounds=1000, random_state=None):
+            optimizer='sgd', loss='mse', early_stopping_rounds=1000, decay_rate=1.0):
         """
 
         :param x:
@@ -145,16 +150,17 @@ class DenoisingAutoencoder(Model):
         :param optimizer:
         :param loss:
         :param early_stopping_rounds:
+        :param decay_rate:
         :return:
         """
         assert early_stopping_rounds > 0, \
-                'early_stopping_rounds should be greater than zero'
+            'early_stopping_rounds should be greater than zero'
         
         assert steps > 0, \
-                'steps should be an integer greater than zero'
+            'steps should be an integer greater than zero'
 
         assert batch_size is None or 0 < batch_size <= x.shape[0], \
-                'bath should be none or an integer between zero (exclusive) and number of input features (inclusive)'
+            'bath should be none or an integer between zero (exclusive) and number of input features (inclusive)'
 
         self.early_stopping_rounds = early_stopping_rounds
         
@@ -189,8 +195,10 @@ class DenoisingAutoencoder(Model):
         
                 opt_metric_value_summary = tf.summary.scalar('mean_' + loss, opt_metric_value)
 
+                tb_output_path = os.path.abspath(self.summaries_dir + '/{}/board/'.format(self.model_name))
+            
                 if self.add_summaries:
-                    test_writer = tf.summary.FileWriter(self.summaries_dir + '/{}'.format(self.model_name), tf.get_default_graph())
+                    test_writer = tf.summary.FileWriter(tb_output_path, tf.get_default_graph())
 
                 #
                 #
@@ -206,9 +214,12 @@ class DenoisingAutoencoder(Model):
                 #
                 for step in range(steps):
                     
-                    logs = []
-                    
-                    current_block = 0
+                    logs, current_block = [], 0
+
+                    if decay_rate is not None and decay_rate > 0:
+                        current_learning_rate = self.decay(step + 1, decay_rate, learning_rate)
+                    else:
+                        current_learning_rate = learning_rate
 
                     while current_block < n_rows:
 
@@ -216,13 +227,11 @@ class DenoisingAutoencoder(Model):
                             np.random.shuffle(index)
 
                         batch = list(range(current_block, (min(current_block + batch_size, n_rows))))
-                        
-                        rs = None if random_state is None else [int(random_state + step), int(random_state + step)]
 
                         loss_value = self.session.run([self.optimizer, self.loss],
-                                                        feed_dict={self.input: x[index[batch], :],
-                                                                   self.learning_rate: learning_rate,
-                                                                   self.keep_probability: keep_probability})[1]
+                                                      feed_dict={self.input: x[index[batch], :],
+                                                                 self.learning_rate: current_learning_rate,
+                                                                 self.keep_probability: keep_probability})[1]
                         
                         logs.append(loss_value)
                         
@@ -232,7 +241,8 @@ class DenoisingAutoencoder(Model):
 
                     if self.add_summaries:
                         
-                        summary_scalar = self.session.run(opt_metric_value_summary, feed_dict={opt_metric_value: np.mean(logs)})
+                        summary_scalar = self.session.run(opt_metric_value_summary,
+                                                          feed_dict={opt_metric_value: np.mean(logs)})
                         
                         test_writer.add_summary(summary_scalar, step)
 
@@ -241,8 +251,15 @@ class DenoisingAutoencoder(Model):
                         iterations_without_improvements = 0
                         
                         self.best_error = np.mean(logs)
-                        
-                        self.saver.save(self.session, '{0}/{1}/graph/{1}'.format(self.summaries_dir, self.model_name))
+
+                        output_path = os.path.abspath('{0}/{1}/graph/{1}'.format(self.summaries_dir, self.model_name))
+
+                        while True:
+                            try:
+                                self.saver.save(self.session, output_path)
+                                break
+                            except:
+                                pass
                         
                     else:
                         iterations_without_improvements += 1
@@ -251,12 +268,12 @@ class DenoisingAutoencoder(Model):
                     #
                     #
                     if iterations_without_improvements >= self.early_stopping_rounds:
-                        
+
                         if self.verbose > 0:
                             print('early stopping after {} iterations without improvements with {} '
-                                  'steps: best metri value {}'.format(
+                                  'steps: best metric value {}'.format(
                                         iterations_without_improvements, step + 1, self.best_error))
-                        
+
                         break
 
     def predict(self, x):
@@ -276,8 +293,8 @@ class DenoisingAutoencoder(Model):
         while start < x.shape[0]:
 
             with self.graph.as_default():
-                x_ = self.session.run([self.decoder], feed_dict={self.input: x[start:end, :], 
-                                                                 self.keep_probability: 1.0})[0]
+                x_ = self.session.run([self.decoder],
+                                      feed_dict={self.input: x[start:end, :], self.keep_probability: 1.0})[0]
 
             if x_line is None:
                 x_line = x_
@@ -473,45 +490,3 @@ class DenoisingAutoencoder(Model):
         with self.graph.as_default():
             self.session.close()
         tf.reset_default_graph()
-
-# Denoising Autoencoder
-
-def train_dda_model(params):
-
-    genefpkm_train, genefpkm_valid, RANDOM_STATE, i, predict = params
-
-    dae_prefix = 'data_augmentation_adadelta_'
-
-    dae = DenoisingAutoencoder(model_name='{}_{}'.format(dae_prefix, i), 
-                               summaries_dir='output/brfl/deep_models/', verbose=1,
-                               random_state=RANDOM_STATE);
-    if not predict:
-        
-        dae.build(n_inputs=genefpkm_train.shape[1], 
-                  encoder_units=(int(genefpkm_train.shape[1] * .5), int(genefpkm_train.shape[1] * .4), 
-                                int(genefpkm_train.shape[1] * .3)), 
-                  decoder_units=(int(genefpkm_train.shape[1] * .4), int(genefpkm_train.shape[1] * .5)), 
-                  encoder_activation_function='relu', decoder_activation_function='identity', l2_scale=0.01);
-
-        dae.fit(genefpkm_train.values, steps=50000, optimizer='adadelta', 
-                loss='mse', learning_rate=1e-4);
-
-    dae.load('output/brfl/deep_models/' + '{0}_{1}/graph/{0}_{1}'.format(dae_prefix, i))
-    
-    dda_train = dae.predict(genefpkm_train.values)
-    dda_valid = dae.predict(genefpkm_valid.values)
-        
-    dae.close()
-    del dae
-    
-    return dda_train, dda_valid
-
-
-def dae_wrapper(train, valid, RANDOM_STATE, i, predict=False):
-    with multiprocessing.Pool() as pool:
-        return pool.map(train_dda_model, [(train, valid, RANDOM_STATE, i, predict)])[0]
-    
-    # from numba import cuda
-    # cuda.select_device(0)
-    # cuda.close()
-        
