@@ -1,21 +1,34 @@
+# Copyright 2020 The MuLT Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
 import pandas as pd
 import numpy as np
+
 
 def classification_metrics(tn, fp, fn, tp):
     
     sensitivity = (tp / float(tp + fn)) if tp + fn > 0 else 1
 
-    precision =  (tp / float(tp + fp)) if tp + fp > 0 else 1
+    precision = (tp / float(tp + fp)) if tp + fp > 0 else 1
 
     specificity = (tn / float(tn + fp)) if tn + fp > 0 else 1
-
-    ks = abs(sensitivity + specificity - 1.)
-
-    ifp = (float(tp + fp) / tp) if tp > 0 else -np.inf
 
     accuracy = (tp + tn) / (tp + tn + fp + fn)
     
     return {'accuracy': accuracy, 'precision': precision, 'sensitivity': sensitivity, 'specificity': specificity}
+
 
 def ks_score(y_true, y_hat):
     

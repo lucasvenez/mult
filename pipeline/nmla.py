@@ -4,14 +4,15 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_auc_score, log_loss
 
+from imblearn.over_sampling import SMOTE
 
-from optimization import LightGBMOptimizer, MLPOptimizer
+from optimization import LightGBMOptimizer
 
 from model import GeneticClustering, GeneticProfiling, DenoisingAutoencoder
-from correlation import select_genes
 
 from util import to_data_frame
 
+import tensorflow as tf
 import pandas as pd
 import numpy as np
 import lightgbm
@@ -46,24 +47,57 @@ class NMLA(SelectMarker):
         self.dae_experiment_path = '{0}/{1}/graph/'.format(self.dae_output_path, self.dae_model_name)
         self.dae_model_path = '{0}/{1}/graph/{1}'.format(self.dae_output_path, self.dae_model_name)
 
+        self.embed_path = os.path.join(self.output_path, 'embed', 'model_{0:03d}'.format(self.experiment_number))
+
         self.n_gene_limit = n_gene_limit
 
         self.verbose = verbose
 
-        self.__reset__()
-
-    def __reset__(self):
-
         # scalers
-        self.genefpkm_min_max_scaler = None
+        self.min_max_embed = None
+        self.genes_min_max_scaler = None
         self.clinical_min_max_scaler = None
         self.dda_minmax_scaler = None
 
         # selected markers
         self.selected_clinical = None
-        self.selected_genefpkm = None
+        self.selected_genes = None
 
         # models
+        self.embed = None
+        self.genetic_profiling_model = None
+        self.genetic_clustering_model = None
+
+        self.lgb_models = []
+
+        # limits
+        self.lgb_mins = []
+        self.lgb_maxs = []
+
+        # performance metrics
+        self.predictor_train_losses = []
+        self.predictor_train_aucs = []
+
+        self.predictor_valid_losses = []
+        self.predictor_valid_aucs = []
+
+        # params
+        self.lgb_optimized_params = None
+
+    def __reset__(self):
+
+        # scalers
+        self.min_max_embed = None
+        self.genes_min_max_scaler = None
+        self.clinical_min_max_scaler = None
+        self.dda_minmax_scaler = None
+
+        # selected markers
+        self.selected_clinical = None
+        self.selected_genes = None
+
+        # models
+        self.embed = None
         self.genetic_profiling_model = None
         self.genetic_clustering_model = None
 
@@ -121,6 +155,49 @@ class NMLA(SelectMarker):
 
         return to_data_frame(self.genetic_clustering_model.transform(markers),
                              prefix='GC', index=markers.index)
+
+    def fit_embed(self, treatments, outcome):
+
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+            tf.random.set_random_seed(self.random_state)
+
+        tf.keras.backend.clear_session()
+
+        self.embed = tf.keras.Sequential()
+        self.embed.add(tf.keras.layers.Embedding(5, 3, input_length=1))
+        self.embed.add(tf.keras.layers.Dense(20, activation='relu'))
+        self.embed.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+
+        self.embed.compile(loss='binary_crossentropy', optimizer='adam')
+
+        self.embed.fit(treatments, outcome, epochs=20, batch_size=100, verbose=0)
+
+        for _ in range(2):
+            self.embed.pop()
+
+        self.embed.save(self.embed_path)
+
+        del self.embed
+
+        tf.keras.backend.clear_session()
+
+    def predict_embed(self, treatments):
+
+        tf.keras.backend.clear_session()
+
+        self.embed = tf.keras.models.load_model(self.embed_path)
+
+        result = self.embed.predict(treatments)[:, 0, :]
+
+        result = pd.DataFrame({'E{}'.format(h): l for h, l in enumerate(result.T)},
+                              index=treatments.index)
+
+        del self.embed
+
+        tf.keras.backend.clear_session()
+
+        return result
 
     def fit_dae(self,
                 markers,
@@ -201,8 +278,8 @@ class NMLA(SelectMarker):
     def fit(self,
 
             clinical,
-            genefpkm,
-            treatment,
+            genes,
+            treatments,
             outcome,
 
             optimization_n_call=50,
@@ -210,7 +287,7 @@ class NMLA(SelectMarker):
             optimization_early_stopping_rounds=1,
 
             clinical_marker_selection_threshold=.05,
-            genefpkm_marker_selection_threshold=.05,
+            gene_selection_threshold=.05,
 
             dae_early_stopping_rounds=1000,
             dae_decay_rate=0.1,
@@ -233,16 +310,14 @@ class NMLA(SelectMarker):
         self.selected_clinical = self.select_markers(
             clinical, outcome, threshold=clinical_marker_selection_threshold)
 
-        self.selected_genefpkm = self.select_markers(
-            genefpkm, outcome, threshold=genefpkm_marker_selection_threshold)
+        self.selected_genes = self.select_markers(
+            genes, outcome, threshold=gene_selection_threshold)
 
-        if self.n_gene_limit is None:
-            self.n_gene_limit = self.select_k_top_markers(self.selected_genefpkm[2])
-
-        if 4 <= self.n_gene_limit < len(self.selected_genefpkm[0]):
-            self.selected_genefpkm = (self.selected_genefpkm[0][:self.n_gene_limit],
-                                      self.selected_genefpkm[1][:self.n_gene_limit],
-                                      self.selected_genefpkm[2][:self.n_gene_limit])
+        if self.n_gene_limit is not None:
+            if 4 <= self.n_gene_limit < len(self.selected_genes[0]):
+                self.selected_genes = (self.selected_genes[0][:self.n_gene_limit],
+                                       self.selected_genes[1][:self.n_gene_limit],
+                                       self.selected_genes[2][:self.n_gene_limit])
 
         pd.DataFrame({'clinical_marker': self.selected_clinical[0],
                       'pvalue': self.selected_clinical[1],
@@ -253,34 +328,40 @@ class NMLA(SelectMarker):
                     self.experiment_number, self.number_of_experiments)),
             index=False)
 
-        pd.DataFrame({'gene': self.selected_genefpkm[0],
-                      'pvalue': self.selected_genefpkm[1],
-                      'entropy': self.selected_genefpkm[2]}).to_csv(
+        pd.DataFrame({'gene': self.selected_genes[0],
+                      'pvalue': self.selected_genes[1],
+                      'entropy': self.selected_genes[2]}).to_csv(
             os.path.join(
                 self.output_path, 'selected_markers',
-                'genefpkm_{0:03}_{1:03}.csv'.format(
+                'genes_{0:03}_{1:03}.csv'.format(
                     self.experiment_number, self.number_of_experiments)),
             index=False)
 
-
-        clinical = clinical.loc[:, self.selected_clinical[0]].join(treatment)
-        genefpkm = genefpkm.loc[:, self.selected_genefpkm[0]]
+        clinical = clinical.loc[:, self.selected_clinical[0]]
+        genes = genes.loc[:, self.selected_genes[0]]
 
         ############################################################################################
         # Normalizing Gene Expression Data
         ############################################################################################
 
-        self.genefpkm_min_max_scaler = MinMaxScaler()
+        self.genes_min_max_scaler = MinMaxScaler()
 
-        genefpkm = pd.DataFrame(self.genefpkm_min_max_scaler.fit_transform(genefpkm),
-                                index=genefpkm.index, columns=genefpkm.columns)
+        genes = pd.DataFrame(self.genes_min_max_scaler.fit_transform(genes),
+                             index=genes.index, columns=genes.columns)
+
+        ############################################################################################
+        # Embedding Treatments
+        ############################################################################################
+
+        self.fit_embed(treatments, outcome)
+        clinical = clinical.join(self.predict_embed(treatments))
 
         ############################################################################################
         # Genetic Profiling
         ############################################################################################
 
-        self.fit_genetic_profiling(genefpkm)
-        profiling = self.predict_genetic_profiling(genefpkm)
+        self.fit_genetic_profiling(genes)
+        profiling = self.predict_genetic_profiling(genes)
 
         clinical = pd.concat([clinical, profiling], axis=1)
 
@@ -288,8 +369,8 @@ class NMLA(SelectMarker):
         # Gene Clustering
         ############################################################################################
 
-        self.fit_gene_clustering(genefpkm)
-        gene_clusters = self.predict_gene_clustering(genefpkm)
+        self.fit_gene_clustering(genes)
+        gene_clusters = self.predict_gene_clustering(genes)
 
         clinical = pd.concat([clinical, gene_clusters], axis=1)
 
@@ -308,22 +389,28 @@ class NMLA(SelectMarker):
         # Denoising Autoencoder
         ############################################################################################
 
-        self.fit_dae(markers=genefpkm,
+        self.fit_dae(markers=genes,
                      decay_rate=dae_decay_rate,
                      learning_rate=dae_learning_rate,
                      steps=dae_steps,
                      early_stopping_rounds=dae_early_stopping_rounds)
 
-        dda = self.predict_dae(genefpkm)
+        dda = self.predict_dae(genes)
 
         ############################################################################################
         # Joining all features
         ############################################################################################
 
-        join = clinical.join(genefpkm, how='inner').join(dda, how='inner')
+        join = clinical.join(genes, how='inner').join(dda, how='inner')
 
         x = join.values
         y = outcome.values
+
+        smote = SMOTE(sampling_strategy='all', random_state=self.random_state, n_jobs=-1)
+
+        x, y = smote.fit_resample(x, y)
+
+        del smote
 
         ############################################################################################
         # LightGBM Hyperparameter Optimization
@@ -392,7 +479,7 @@ class NMLA(SelectMarker):
         print('VALID mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
         print('VALID mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
 
-    def predict(self, clinical, genefpkm, treatment):
+    def predict(self, clinical, genes, treatments):
         """
         """
 
@@ -402,28 +489,34 @@ class NMLA(SelectMarker):
         # Feature Selection
         ############################################################################################
 
-        clinical = clinical[self.selected_clinical[0]].join(treatment)
-        genefpkm = genefpkm[self.selected_genefpkm[0]]
+        clinical = clinical[self.selected_clinical[0]]
+        genes = genes[self.selected_genes[0]]
 
         ############################################################################################
         # Normalizing Gene Expression Data
         ############################################################################################
 
-        genefpkm = pd.DataFrame(self.genefpkm_min_max_scaler.transform(genefpkm),
-                                index=genefpkm.index, columns=genefpkm.columns)
+        genes = pd.DataFrame(self.genes_min_max_scaler.transform(genes),
+                             index=genes.index, columns=genes.columns)
+
+        ############################################################################################
+        # Embedding Treatments
+        ############################################################################################
+
+        clinical = clinical.join(self.predict_embed(treatments))
 
         ############################################################################################
         # Genetic Profiling
         ############################################################################################
 
-        profiling = self.predict_genetic_profiling(genefpkm)
+        profiling = self.predict_genetic_profiling(genes)
         clinical = pd.concat([clinical, profiling], axis=1)
 
         ############################################################################################
         # Gene Clustering
         ############################################################################################
 
-        gene_clusters = self.predict_gene_clustering(genefpkm)
+        gene_clusters = self.predict_gene_clustering(genes)
         clinical = pd.concat([clinical, gene_clusters], axis=1)
 
         ############################################################################################
@@ -440,13 +533,13 @@ class NMLA(SelectMarker):
         # Denoising Autoencoder
         ############################################################################################
 
-        dda = self.predict_dae(genefpkm)
+        dda = self.predict_dae(genes)
 
         ############################################################################################
         # Joining all features
         ############################################################################################
 
-        x = clinical.join(genefpkm, how='inner').join(dda, how='inner').values
+        x = clinical.join(genes, how='inner').join(dda, how='inner').values
 
         ############################################################################################
         # Predicting
