@@ -1,0 +1,10 @@
+lightgbm
+pandas
+numpy
+tensorflow-gpu
+sklearn
+scikit-optimize
+scipy
+networkx
+tensorflow
+xgboost
