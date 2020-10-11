@@ -19,7 +19,7 @@ import lightgbm
 import os
 
 
-class NMLA(SelectMarker):
+class MuLT(SelectMarker):
     """
     """
 
