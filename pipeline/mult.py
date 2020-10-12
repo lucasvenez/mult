@@ -156,7 +156,7 @@ class MuLT(SelectMarker):
         return to_data_frame(self.genetic_clustering_model.transform(markers),
                              prefix='GC', index=markers.index)
 
-    def fit_embed(self, treatments, outcome):
+    def fit_embed(self, treatments, outcome, output_dim=5):
 
         if self.random_state is not None:
             np.random.seed(self.random_state)
@@ -165,7 +165,7 @@ class MuLT(SelectMarker):
         tf.keras.backend.clear_session()
 
         self.embed = tf.keras.Sequential()
-        self.embed.add(tf.keras.layers.Embedding(5, 3, input_length=1))
+        self.embed.add(tf.keras.layers.Embedding(5, output_dim=output_dim, input_length=1))
         self.embed.add(tf.keras.layers.Dense(20, activation='relu'))
         self.embed.add(tf.keras.layers.Dense(1, activation='sigmoid'))
 
@@ -406,7 +406,7 @@ class MuLT(SelectMarker):
         x = join.values
         y = outcome.values
 
-        smote = SMOTE(sampling_strategy='all', random_state=self.random_state, n_jobs=-1)
+        smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
 
         x, y = smote.fit_resample(x, y)
 

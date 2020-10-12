@@ -81,6 +81,11 @@ class LightGBMOptimizer(object):
             Real(1e-3, 1, name='bagging_fraction'),
             Real(0.01, 1, name='feature_fraction'),
             Real(0.01, 1, name='feature_fraction_bynode'),
+            Integer(2, 10, name='max_depth'),
+            Real(1e-6, 1e-1, name='learning_rate'),
+            Real(1e-6, 1e-1, name='min_split_gain'),
+            Real(1e-6, 1e-1, name='min_child_weight')
+
         ]
 
         @use_named_args(space)
@@ -95,21 +100,30 @@ class LightGBMOptimizer(object):
             bagging_fraction,
             feature_fraction,
             feature_fraction_bynode,
+            max_depth,
+            learning_rate,
+            min_split_gain,
+            min_child_weight
         ):
             try:
                 scores = []
 
                 params = {
-                    'num_leaves': int(num_leaves),
+                    'num_leaves': int(round(num_leaves, ndigits=0)),
                     'scale_pos_weight': scale_pos_weight,
                     'colsample_bytree': colsample_bytree,
-                    'min_child_samples': int(min_child_samples),
-                    'bin_construct_sample_cnt': int(bin_construct_sample_cnt),
-                    'max_bin': int(max_bin),
+                    'min_child_samples': int(round(min_child_samples, ndigits=0)),
+                    'bin_construct_sample_cnt': int(round(bin_construct_sample_cnt, ndigits=0)),
+                    'max_bin': int(round(max_bin, ndigits=0)),
                     'min_sum_hessian_in_leaf': min_sum_hessian_in_leaf,
                     'bagging_fraction': bagging_fraction,
                     'feature_fraction': feature_fraction,
                     'feature_fraction_bynode': feature_fraction_bynode,
+
+                    'max_depth': int(round(max_depth, ndigits=0)),
+                    'learning_rate': learning_rate,
+                    'min_split_gain': min_split_gain,
+                    'min_child_weight': min_child_weight,
 
                     'n_jobs': self.n_jobs,
                     'silent': self.verbose < 1,
