@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="https://github.com/lucasvenez/mult/blob/bioinformatics/mult_logo.png?raw=true">
+</div>
+
 # Mult Learning Tranining (MuLT) Approach
 
 MuLT aims at employing unsupervised, self-supervised, and supervised learning algorithms to create different data representation in a try to improve classification performance.
