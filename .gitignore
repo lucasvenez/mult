@@ -14,3 +14,4 @@ images/
 output/
 !.gitignore
 !requirements.txt
+!mult_logo.png

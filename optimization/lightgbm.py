@@ -24,7 +24,8 @@ from lightgbm import LGBMModel
 
 import pandas as pd
 import numpy as np
-
+import os
+import sys
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -81,11 +82,6 @@ class LightGBMOptimizer(object):
             Real(1e-3, 1, name='bagging_fraction'),
             Real(0.01, 1, name='feature_fraction'),
             Real(0.01, 1, name='feature_fraction_bynode'),
-            Integer(2, 10, name='max_depth'),
-            Real(1e-6, 1e-1, name='learning_rate'),
-            Real(1e-6, 1e-1, name='min_split_gain'),
-            Real(1e-6, 1e-1, name='min_child_weight')
-
         ]
 
         @use_named_args(space)
@@ -100,10 +96,10 @@ class LightGBMOptimizer(object):
             bagging_fraction,
             feature_fraction,
             feature_fraction_bynode,
-            max_depth,
-            learning_rate,
-            min_split_gain,
-            min_child_weight
+            # max_depth,
+            # learning_rate,
+            # min_split_gain,
+            # min_child_weight
         ):
             try:
                 scores = []
@@ -120,10 +116,10 @@ class LightGBMOptimizer(object):
                     'feature_fraction': feature_fraction,
                     'feature_fraction_bynode': feature_fraction_bynode,
 
-                    'max_depth': int(round(max_depth, ndigits=0)),
-                    'learning_rate': learning_rate,
-                    'min_split_gain': min_split_gain,
-                    'min_child_weight': min_child_weight,
+                    # 'max_depth': int(round(max_depth, ndigits=0)),
+                    # 'learning_rate': learning_rate,
+                    # 'min_split_gain': min_split_gain,
+                    # 'min_child_weight': min_child_weight,
 
                     'n_jobs': self.n_jobs,
                     'silent': self.verbose < 1,
@@ -165,8 +161,6 @@ class LightGBMOptimizer(object):
                 return result
 
             except Exception as e:
-                import os, sys
-                print(str(e))
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 print(exc_type, fname, exc_tb.tb_lineno)

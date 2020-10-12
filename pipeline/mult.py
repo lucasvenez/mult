@@ -313,6 +313,9 @@ class MuLT(SelectMarker):
         self.selected_genes = self.select_markers(
             genes, outcome, threshold=gene_selection_threshold)
 
+        if self.n_gene_limit is None:
+            self.n_gene_limit = self.select_k_top_markers(self.selected_genes[2])
+
         if self.n_gene_limit is not None:
             if 4 <= self.n_gene_limit < len(self.selected_genes[0]):
                 self.selected_genes = (self.selected_genes[0][:self.n_gene_limit],
@@ -337,7 +340,7 @@ class MuLT(SelectMarker):
                     self.experiment_number, self.number_of_experiments)),
             index=False)
 
-        clinical = clinical.loc[:, self.selected_clinical[0]]
+        clinical = clinical.loc[:, self.selected_clinical[0]].join(treatments)
         genes = genes.loc[:, self.selected_genes[0]]
 
         ############################################################################################
@@ -348,13 +351,6 @@ class MuLT(SelectMarker):
 
         genes = pd.DataFrame(self.genes_min_max_scaler.fit_transform(genes),
                              index=genes.index, columns=genes.columns)
-
-        ############################################################################################
-        # Embedding Treatments
-        ############################################################################################
-
-        self.fit_embed(treatments, outcome)
-        clinical = clinical.join(self.predict_embed(treatments))
 
         ############################################################################################
         # Genetic Profiling
@@ -406,11 +402,9 @@ class MuLT(SelectMarker):
         x = join.values
         y = outcome.values
 
-        smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
-
-        x, y = smote.fit_resample(x, y)
-
-        del smote
+        # smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
+        # x, y = smote.fit_resample(x, y)
+        # del smote
 
         ############################################################################################
         # LightGBM Hyperparameter Optimization
@@ -489,7 +483,7 @@ class MuLT(SelectMarker):
         # Feature Selection
         ############################################################################################
 
-        clinical = clinical[self.selected_clinical[0]]
+        clinical = clinical[self.selected_clinical[0]].join(treatments)
         genes = genes[self.selected_genes[0]]
 
         ############################################################################################
@@ -498,12 +492,6 @@ class MuLT(SelectMarker):
 
         genes = pd.DataFrame(self.genes_min_max_scaler.transform(genes),
                              index=genes.index, columns=genes.columns)
-
-        ############################################################################################
-        # Embedding Treatments
-        ############################################################################################
-
-        clinical = clinical.join(self.predict_embed(treatments))
 
         ############################################################################################
         # Genetic Profiling
