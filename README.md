@@ -20,7 +20,7 @@ Our experiments cover the following topics:
    5. Structure analyses of genes and clinical markers; and
    6. Simulation of optimal treatments from TS predictors.
 
-> **_Note:_** All *.ipynb files correspond to the topics number bellow. To reproduce experiments just run *.ipynb files following numeric order.
+> **_Note:_** All *.ipynb files correspond to the topics number above. To reproduce experiments just run *.ipynb files following numeric order.
 
 ## Publication
 
