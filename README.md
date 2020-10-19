@@ -2,7 +2,7 @@
   <img src="https://github.com/lucasvenez/mult/blob/bioinformatics/mult_logo.png?raw=true">
 </div>
 
-# Multiple Learning Training (MuLT) Approach
+# Multi Learning Training (MuLT) Approach
 
 MuLT aims at employing unsupervised, self-supervised, and supervised learning algorithms to create different data representation in a try to improve classification performance.
 
