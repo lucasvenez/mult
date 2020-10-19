@@ -24,7 +24,7 @@ Our experiments cover the following topics:
 
 ## Publication
 
-At this moment, the paper named **_"Machine learning predicts treatment sensitivity in multiple myeloma based on molecular and clinical information coupled with drug response"_** describing all motivations and experiments related to this repository was submmited to the **[Bioinformatics Journal](https://academic.oup.com/bioinformatics)**.
+At this moment, the paper named **_"Machine learning predicts treatment sensitivity in multiple myeloma based on molecular and clinical information coupled with drug response"_** describing all motivations and experiments related to this repository was submmited to the **[PLOS Computation Biology](https://journals.plos.org/ploscompbiol/)**.
 
 ## Contact
 
