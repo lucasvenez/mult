@@ -22,6 +22,10 @@ CLINICAL_OUTCOME = 'response_best_response_first_line'
 
 
 def load_data():
+    """
+
+    :return:
+    """
 
     # loading clinical data
     clinical = pd.read_csv(os.path.join(os.path.dirname(__file__), 'clinical.tsv'), sep='\t', index_col='ID')

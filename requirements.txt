@@ -8,3 +8,5 @@ scipy
 networkx
 tensorflow
 xgboost
+GEOparse
+missingno
