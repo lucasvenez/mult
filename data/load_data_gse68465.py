@@ -8,7 +8,7 @@ def processing_gse68465(clinical):
     assert isinstance(clinical, pd.DataFrame), 'Invalid clinical type. It should be a pandas data frame.'
 
     # cleaning clinical markers
-    clinical = clinical.replace('na', None)
+    clinical = clinical.replace({'na', None})
 
     clinical['disease_state'] = clinical['disease_state'].replace({
         'Normal': 0, 'Lung Adenocarcinoma': 1})
@@ -62,6 +62,8 @@ def processing_gse68465(clinical):
     #
     outcome = pd.DataFrame((clinical['months_to_last_contact_or_death'] >=
                             clinical['months_to_last_contact_or_death'].mean()).astype(float))
+
+    outcome.columns = ['risk_group']
 
     # removing clinical markers invalid for
     # building high and low risk predictors

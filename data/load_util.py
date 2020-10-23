@@ -42,13 +42,15 @@ def load_data_from_geo(geo_id, dst_path='.', silent=True):
 
                 # genes
 
-        tmp = gsm.table[['ID_REF', 'VALUE']].set_index('ID_REF')
+        if gsm.table.shape[0] > 0:
 
-        tmp.columns = [str(gsm_name).upper()]
-        if genes is None:
-            genes = tmp
-        else:
-            genes = genes.join(tmp, how='left')
+            tmp = gsm.table[['ID_REF', 'VALUE']].set_index('ID_REF')
+
+            tmp.columns = [str(gsm_name).upper()]
+            if genes is None:
+                genes = tmp
+            else:
+                genes = genes.join(tmp, how='left')
 
         # characteristics
 
@@ -70,9 +72,9 @@ def load_data_from_geo(geo_id, dst_path='.', silent=True):
     metadata = pd.DataFrame(metadata).set_index('ID')
     characteristics = pd.DataFrame(characteristics).set_index('ID')
 
-    genes = genes.reset_index().rename(columns={'ID_REF': 'ID'}).set_index('ID')
-
-    genes = genes.T
+    if genes is not None:
+        genes = genes.reset_index().rename(columns={'ID_REF': 'ID'}).set_index('ID')
+        genes = genes.T
 
     return characteristics, genes, metadata, platforms
 
@@ -120,20 +122,29 @@ def load_data_gse(geo_id, processing_function, verbose=-1, read_as_ndarray=False
     else:
 
         characteristics, genes, metadata, platforms = load_data_from_geo(
-            geo_id=GEO_ID,
-            dst_path=CURRENT_PATH,
-            silent=verbose <= 0)
+            geo_id=GEO_ID, dst_path=os.path.join(CURRENT_PATH, GEO_ID), silent=verbose <= 0)
 
         clinical, outcome = processing_function(characteristics)
 
         # exporting databases
-        clinical.to_csv(clinical_path, sep=',', index=True)
-        genes.T.to_csv(gene_path, sep=',', index=True)
-        outcome.to_csv(outcome_path, sep=',', index=True)
+        if isinstance(clinical, pd.DataFrame):
+            clinical.to_csv(clinical_path, sep=',', index=True)
+
+        if isinstance(genes, pd.DataFrame):
+            genes.T.to_csv(gene_path, sep=',', index=True)
+
+        if isinstance(outcome, pd.DataFrame):
+            outcome.to_csv(outcome_path, sep=',', index=True)
 
     if read_as_ndarray:
-        clinical = clinical.values
-        genes = genes.values
-        outcome = outcome.values
+
+        if isinstance(clinical, pd.DataFrame):
+            clinical = clinical.values
+
+        if isinstance(genes, pd.DataFrame):
+            genes = genes.values
+
+        if isinstance(outcome, pd.DataFrame):
+            outcome = outcome.values
 
     return clinical, genes, outcome

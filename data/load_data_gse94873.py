@@ -2,25 +2,32 @@ from data import load_data_gse
 
 import pandas as pd
 
+
 def processing_gse94873(clinical):
     clinical = clinical.replace({'NA':None})
     
-    clinical = clinical.rename(columns={'immunotherapy_response_(responder=1_nonresponder=0)':'immunotherapy_responder',
-                            'survival_status_12_months_(1=alive_0=dead)':'survival_status'})
+    clinical = clinical.rename(columns={
+        'immunotherapy_response_(responder=1_nonresponder=0)': 'immunotherapy_responder',
+        'survival_status_12_months_(1=alive_0=dead)': 'survival_status'})
 
-    clinical['gender'] = clinical['gender'].replace({'FEMALE':'female', 'MALE':'male'})
-    clinical['cancer_stage'] = clinical['cancer_stage'].replace({'IIIC': 1, 'IV M1A': 2, 'IV M1B': 3, 'IV M1C': 4})
+    clinical['gender'] = clinical['gender'].str.lower()
+
+    clinical['cancer_stage'] = clinical['cancer_stage'].replace({
+        'IIIC': 1, 'IV M1A': 2, 'IV M1B': 3, 'IV M1C': 4})
 
     clinical = pd.concat([clinical.drop('gender', 1),  pd.get_dummies(clinical['gender'])], axis=1)
 
-    for col in ['tissue', 'male']: 
+    for col in ['tissue', 'male', 'immunotherapy_responder']:
         del clinical[col]
     
     clinical = clinical.astype(float)
     
-    outcome = clinical['survival_status']
-    
+    outcome = clinical[['survival_status']]
+
+    del clinical['survival_status']
+
     return clinical, outcome
+
 
 def load_data_gse94873(verbose=-1, read_as_ndarray=False):
     """
