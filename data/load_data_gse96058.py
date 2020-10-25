@@ -49,6 +49,11 @@ def processing_gse96058(clinical):
     for column in ['overall_survival_days', 'overall_survival_event']:
         del clinical[column]
 
+    # removing estimated values
+    for c in clinical.columns:
+        if 'prediction' in c or 'model' in c:
+            del clinical[c]
+
     return clinical, outcome
 
 

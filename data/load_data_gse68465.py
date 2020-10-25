@@ -8,14 +8,16 @@ def processing_gse68465(clinical):
     assert isinstance(clinical, pd.DataFrame), 'Invalid clinical type. It should be a pandas data frame.'
 
     # cleaning clinical markers
-    clinical = clinical.replace({'na', None})
+    clinical = clinical.replace({'na': None, 'NA': None, 'Unknown': None})
 
     clinical['disease_state'] = clinical['disease_state'].replace({
         'Normal': 0, 'Lung Adenocarcinoma': 1})
 
-    clinical['sex'] = clinical['sex'].replace({'Male': 1, 'Female': 2})
+    clinical['gender'] = clinical['sex'].replace({'Male': 0, 'Female': 1})
+    del clinical['sex']
 
-    clinical['age'] = clinical['age'].astype(float)
+    clinical['age_at_diagnosis'] = clinical['age'].astype(float)
+    del clinical['age']
 
     clinical['race'] = pd.get_dummies(clinical['race'].replace({'Unknown': None, 'Not Reported': None}))
 
