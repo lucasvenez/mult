@@ -98,23 +98,28 @@ class SMLA(SelectMarker):
         else:
             raise ValueError('predictor should be one of the following: lightgbm, svm, knn, lr, or mlp')
 
-    def fit(self, clinical_markers, genes, treatments, clinical_outcome,
+    def fit(self, genes, clinical_markers=None, treatments=None, clinical_outcome,
             clinical_marker_selection_threshold,
             genes_marker_selection_threshold,
             early_stopping_rounds=None):
 
         ######
 
-        self.selected_clinical = self.select_markers(
-            clinical_markers, clinical_outcome, threshold=clinical_marker_selection_threshold)
+        if clinical_markers is not None:
+            self.selected_clinical = self.select_markers(
+                clinical_markers, clinical_outcome, threshold=clinical_marker_selection_threshold)
+            x = clinical_markers.loc[:, self.selected_clinical[0]]
+
+        if treatments is not None:
+            x = x.join(treatments) if x is not None else treatments
 
         self.selected_genes = self.select_markers(
             genes, clinical_outcome, threshold=genes_marker_selection_threshold)
 
-        clinical_markers = clinical_markers.loc[:, self.selected_clinical[0]].join(treatments)
         genes = genes.loc[:, self.selected_genes[0]]
 
-        x, y = clinical_markers.join(genes, how='inner').fillna(0).values, clinical_outcome.values
+        x = x.join(genes, how='inner').fillna(0).values if x is not None else genes.fillna(0).values
+        y = clinical_outcome.values
 
         x = self.scaler.fit_transform(x)
 
