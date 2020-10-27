@@ -30,6 +30,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 
 import numpy as np
+import pandas as pd
 
 
 class SMLA(SelectMarker):
@@ -205,22 +206,29 @@ class SMLA(SelectMarker):
 
         self.model.fit(x, y)
 
-    def predict(self, clinical_markers, genes, treatments):
+    def predict(self, genes, clinical_markers=None, treatments=None):
 
-        clinical_markers = clinical_markers.loc[:, self.selected_clinical[0]].join(treatments)
+        assert isinstance(genes, pd.DataFrame), 'genes should a pd.DataFrame'
+
+        if clinical_markers is not None:
+            X = clinical_markers.loc[:, self.selected_clinical[0]]
+
+        if treatments is not None:
+            X = X.join(treatments) if X is not None else treatments
+
         genes = genes.loc[:, self.selected_genes[0]]
 
-        x = clinical_markers.join(genes, how='inner').fillna(0).values
+        X = X.join(genes, how='inner').fillna(0).values if X is not None else genes.fillna(0)
 
-        x = np.maximum(0, np.minimum(1, self.scaler.transform(x)))
+        X = np.maximum(0, np.minimum(1, self.scaler.transform(X)))
 
-        assert x.shape[1] == self.fitted_shape[1], \
+        assert X.shape[1] == self.fitted_shape[1], \
             'new data should have same number of features used to fit model'
 
         if self.predictor == 'lightgbm':
-            result = self.model.predict(x)
+            result = self.model.predict(X)
         else:
-            result = self.model.predict_proba(x)
+            result = self.model.predict_proba(X)
 
         if len(result.shape) > 1:
             result = result[:, -1]
