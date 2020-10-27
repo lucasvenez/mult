@@ -1,5 +1,6 @@
 from data import load_data_gse
 
+import numpy as np
 import pandas as pd
 
 
@@ -45,8 +46,9 @@ def processing_gse135820(clinical):
     clinical = clinical.drop(columns=['diagnosis_non_hgsoc'])
 
     # generating the outcome
-    outcome = pd.DataFrame((clinical['overall_survival_time'] >=
-                            clinical['overall_survival_time'].mean()).astype(float))
+    outcome = pd.DataFrame((
+        (clinical['overall_survival_time'] >= clinical['overall_survival_time'].mean()) &
+        (clinical['vital_status'] == 1)).astype(float))
     outcome.columns = ['risk_group']
 
     # removing features that are a direct mapping to outcome (avoiding data leak)
@@ -72,7 +74,7 @@ def load_data_gse135820(verbose=-1, read_as_ndarray=False):
     """
     clinical, genes, outcome = load_data_gse('GSE135820', processing_gse135820, verbose, read_as_ndarray)
 
-    return clinical, genes, outcome
+    return clinical, genes.apply(lambda x: np.exp(x)), outcome
 
 
 if __name__ == '__main__':

@@ -82,6 +82,10 @@ class LightGBMOptimizer(object):
             Real(1e-3, 1, name='bagging_fraction'),
             Real(0.01, 1, name='feature_fraction'),
             Real(0.01, 1, name='feature_fraction_bynode'),
+            # Integer(4, 20, name='max_depth'),
+            # Real(1e-4, 1e-1, name='learning_rate'),
+            # Real(1e-4, 1e-1, name='min_split_gain'),
+            # Real(1e-4, 1e-1, name='min_child_weight')
         ]
 
         @use_named_args(space)
