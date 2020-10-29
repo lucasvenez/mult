@@ -111,7 +111,7 @@ def ks2samp_pvalue(i):
     return var, p, e
 
 
-def select_genes(genes, response, threshold=0.05):
+def select_genes(genes, response, threshold=0.05, n_features_limit=300):
     #
     # Gene Selection
     #
@@ -150,6 +150,10 @@ def select_genes(genes, response, threshold=0.05):
     gene_table = pd.DataFrame(gene_table).set_index('variable')
     
     selected_genes = list(gene_table[gene_table['score'] < threshold].sort_values(by='score').index)
+
+    if n_features_limit is not None and n_features_limit > 0:
+        if len(selected_genes) > n_features_limit:
+            selected_genes = selected_genes[:n_features_limit]
 
     pairwise_pearson = genes[selected_genes].corr().abs()
     

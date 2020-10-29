@@ -29,7 +29,8 @@ class MuLT(SelectMarker):
                  n_gene_limit=None,
                  output_path='./output',
                  random_state=None,
-                 verbose=None):
+                 verbose=None,
+                 export_metadata=True):
         """
         """
 
@@ -83,6 +84,18 @@ class MuLT(SelectMarker):
 
         # params
         self.lgb_optimized_params = None
+
+        # data augmentation
+        self.minor_class_augmentation = None
+
+        # export hyperparameters and selected genes?
+        self.export_metadata = export_metadata
+
+        # creating required paths
+        for subdir in ['selected_markers', 'dae']:
+            path = os.path.join(self.output_path, subdir)
+            if not os.path.exists(path):
+                os.makedirs(path)
 
     def __reset__(self):
 
@@ -277,10 +290,10 @@ class MuLT(SelectMarker):
 
     def fit(self,
 
-            clinical,
             genes,
-            treatments,
             outcome,
+            clinical=None,
+            treatments=None,
 
             optimization_n_call=50,
             optimization_n_folds=2,
@@ -294,24 +307,35 @@ class MuLT(SelectMarker):
             dae_learning_rate=1e-4,
             dae_steps=50000,
 
-            lgb_fixed_parameters=dict(),
+            lgb_fixed_parameters=None,
             lgb_early_stopping_rounds=10,
 
-            predictor_n_folds=5):
+            predictor_n_folds=5,
+            minor_class_augmentation=False,
+            gene_clustering_max_dimension=1000,
+            selected_genes_limit=300,
+            selected_clinical_markers_limit=300):
         """
         """
 
         self.__reset__()
 
+        self.minor_class_augmentation = minor_class_augmentation
+
+        x = None
+
         ############################################################################################
         # Select gene expressions
         ############################################################################################
 
-        self.selected_clinical = self.select_markers(
-            clinical, outcome, threshold=clinical_marker_selection_threshold)
+        if clinical is not None:
+            self.selected_clinical = self.select_markers(
+                clinical, outcome, threshold=clinical_marker_selection_threshold,
+                n_features_limit=selected_clinical_markers_limit)
 
         self.selected_genes = self.select_markers(
-            genes, outcome, threshold=gene_selection_threshold)
+            genes, outcome, threshold=gene_selection_threshold,
+            n_features_limit=selected_genes_limit)
 
         if self.n_gene_limit is None:
             self.n_gene_limit = self.select_k_top_markers(self.selected_genes[2])
@@ -322,25 +346,38 @@ class MuLT(SelectMarker):
                                        self.selected_genes[1][:self.n_gene_limit],
                                        self.selected_genes[2][:self.n_gene_limit])
 
-        pd.DataFrame({'clinical_marker': self.selected_clinical[0],
-                      'pvalue': self.selected_clinical[1],
-                      'entropy': self.selected_clinical[2]}).to_csv(
-            os.path.join(
-                self.output_path, 'selected_markers',
-                'clinical_{0:03}_{1:03}.csv'.format(
-                    self.experiment_number, self.number_of_experiments)),
-            index=False)
+        if self.export_metadata:
 
-        pd.DataFrame({'gene': self.selected_genes[0],
-                      'pvalue': self.selected_genes[1],
-                      'entropy': self.selected_genes[2]}).to_csv(
-            os.path.join(
-                self.output_path, 'selected_markers',
-                'genes_{0:03}_{1:03}.csv'.format(
-                    self.experiment_number, self.number_of_experiments)),
-            index=False)
+            if clinical is not None:
+                pd.DataFrame({'clinical_marker': self.selected_clinical[0],
+                              'pvalue': self.selected_clinical[1],
+                              'entropy': self.selected_clinical[2]}).to_csv(
+                    os.path.join(
+                        self.output_path, 'selected_markers',
+                        'clinical_{0:03}_{1:03}.csv'.format(
+                            self.experiment_number, self.number_of_experiments)),
+                    index=False)
 
-        clinical = clinical.loc[:, self.selected_clinical[0]].join(treatments)
+            pd.DataFrame({'gene': self.selected_genes[0],
+                          'pvalue': self.selected_genes[1],
+                          'entropy': self.selected_genes[2]}).to_csv(
+                os.path.join(
+                    self.output_path, 'selected_markers',
+                    'genes_{0:03}_{1:03}.csv'.format(
+                        self.experiment_number, self.number_of_experiments)),
+                index=False)
+
+        if clinical is not None:
+            if len(self.selected_clinical[0]) > 0:
+                x = clinical.loc[:, self.selected_clinical[0]]
+
+        if treatments is not None:
+            if treatments.shape[1] > 0:
+                x = treatments if x is None else x.join(treatments)
+
+        assert len(self.selected_genes[0]) >= 4, \
+            'At least 4 genes are required for MuLT approach. You can increase the threshold.'
+
         genes = genes.loc[:, self.selected_genes[0]]
 
         ############################################################################################
@@ -359,16 +396,20 @@ class MuLT(SelectMarker):
         self.fit_genetic_profiling(genes)
         profiling = self.predict_genetic_profiling(genes)
 
-        clinical = pd.concat([clinical, profiling], axis=1)
+        x = pd.concat([x, profiling], axis=1) if x is not None else profiling
 
         ############################################################################################
         # Gene Clustering
         ############################################################################################
 
-        self.fit_gene_clustering(genes)
+        if gene_clustering_max_dimension is not None and genes.shape[0] > gene_clustering_max_dimension:
+            self.fit_gene_clustering(genes.sample(n=gene_clustering_max_dimension, random_state=self.random_state))
+        else:
+            self.fit_gene_clustering(genes)
+
         gene_clusters = self.predict_gene_clustering(genes)
 
-        clinical = pd.concat([clinical, gene_clusters], axis=1)
+        x = pd.concat([x, gene_clusters], axis=1)
 
         ############################################################################################
         # Normalizing Clinical Data
@@ -376,10 +417,10 @@ class MuLT(SelectMarker):
 
         self.clinical_min_max_scaler = MinMaxScaler()
 
-        clinical = pd.DataFrame(self.clinical_min_max_scaler.fit_transform(clinical),
-                                index=clinical.index, columns=clinical.columns)
+        x = pd.DataFrame(self.clinical_min_max_scaler.fit_transform(x),
+                         index=x.index, columns=x.columns)
 
-        clinical = clinical.fillna(0)
+        x = x.fillna(0)
 
         ############################################################################################
         # Denoising Autoencoder
@@ -397,18 +438,21 @@ class MuLT(SelectMarker):
         # Joining all features
         ############################################################################################
 
-        join = clinical.join(genes, how='inner').join(dda, how='inner')
+        x = x.join(genes, how='inner').join(dda, how='inner')
 
-        x = join.values
-        y = outcome.values
+        x, y = x.values, outcome.values
 
-        # smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
-        # x, y = smote.fit_resample(x, y)
-        # del smote
+        if minor_class_augmentation:
+            smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
+            x, y = smote.fit_resample(x, y)
+            del smote
 
         ############################################################################################
         # LightGBM Hyperparameter Optimization
         ############################################################################################
+
+        if lgb_fixed_parameters is None:
+            lgb_fixed_parameters = dict()
 
         lgb_params = LightGBMOptimizer(
             n_calls=optimization_n_call,
@@ -467,23 +511,32 @@ class MuLT(SelectMarker):
             self.predictor_valid_losses.append(log_loss(y_valid, y_valid_hat))
             self.predictor_valid_aucs.append(roc_auc_score(y_valid, y_valid_hat))
 
-        print('TRAIN mean log loss: {0:03}'.format(np.mean(self.predictor_train_losses)))
-        print('TRAIN mean AUC: {0:03}'.format(np.mean(self.predictor_train_aucs)))
+        if self.verbose:
 
-        print('VALID mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
-        print('VALID mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
+            print('Train mean log loss: {0:03}'.format(np.mean(self.predictor_train_losses)))
+            print('Train mean AUC: {0:03}'.format(np.mean(self.predictor_train_aucs)))
 
-    def predict(self, clinical, genes, treatments):
+            print('Valid mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
+            print('Valid mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
+
+    def predict(self, genes, clinical=None, treatments=None):
         """
         """
 
         assert len(self.lgb_models) > 0
 
+        x = None
+
         ############################################################################################
         # Feature Selection
         ############################################################################################
 
-        clinical = clinical[self.selected_clinical[0]].join(treatments)
+        if clinical is not None:
+            x = clinical[self.selected_clinical[0]]
+
+        if treatments is not None:
+            x = x.join(treatments) if x is not None else treatments
+
         genes = genes[self.selected_genes[0]]
 
         ############################################################################################
@@ -498,24 +551,24 @@ class MuLT(SelectMarker):
         ############################################################################################
 
         profiling = self.predict_genetic_profiling(genes)
-        clinical = pd.concat([clinical, profiling], axis=1)
+        x = pd.concat([x, profiling], axis=1) if x is not None else profiling
 
         ############################################################################################
         # Gene Clustering
         ############################################################################################
 
         gene_clusters = self.predict_gene_clustering(genes)
-        clinical = pd.concat([clinical, gene_clusters], axis=1)
+        x = pd.concat([x, gene_clusters], axis=1)
 
         ############################################################################################
         # Normalizing Clinical Data
         ############################################################################################
 
-        clinical = pd.DataFrame(
-            self.clinical_min_max_scaler.transform(clinical),
-            index=clinical.index, columns=clinical.columns)
+        x = pd.DataFrame(
+            self.clinical_min_max_scaler.transform(x),
+            index=x.index, columns=x.columns)
 
-        clinical = clinical.fillna(0)
+        x = x.fillna(0)
 
         ############################################################################################
         # Denoising Autoencoder
@@ -527,7 +580,7 @@ class MuLT(SelectMarker):
         # Joining all features
         ############################################################################################
 
-        x = clinical.join(genes, how='inner').join(dda, how='inner').values
+        x = x.join(genes, how='inner').join(dda, how='inner').values
 
         ############################################################################################
         # Predicting
@@ -543,8 +596,8 @@ class MuLT(SelectMarker):
 
             lgb_y_hat = lgb.predict(x)
 
-            lgb_y_hat = np.maximum(0, np.minimum(1.,
-                    (lgb_y_hat - self.lgb_mins[i]) / (self.lgb_maxs[i] - self.lgb_mins[i])))
+            lgb_y_hat = np.maximum(0, np.minimum(1., (
+                    lgb_y_hat - self.lgb_mins[i]) / (self.lgb_maxs[i] - self.lgb_mins[i])))
 
             ############################################################################################
             # Final score

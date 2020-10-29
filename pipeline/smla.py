@@ -96,14 +96,15 @@ class SMLA(SelectMarker):
             self.optimizer = RFOptimizer(**self.optimizer_default_params)
 
         else:
-            raise ValueError('predictor should be one of the following: lightgbm, svm, knn, lr, or mlp')
+            raise ValueError('predictor should be one of the following: '
+                             'lightgbm, svm, knn, lr, or mlp')
 
-    def fit(self, genes, clinical_markers=None, treatments=None, clinical_outcome,
-            clinical_marker_selection_threshold,
-            genes_marker_selection_threshold,
+    def fit(self, genes, clinical_outcome, clinical_markers=None, treatments=None,
+            clinical_marker_selection_threshold=0.05,
+            genes_marker_selection_threshold=0.05,
             early_stopping_rounds=None):
 
-        ######
+        # feature selection
 
         if clinical_markers is not None:
             self.selected_clinical = self.select_markers(
@@ -117,6 +118,8 @@ class SMLA(SelectMarker):
             genes, clinical_outcome, threshold=genes_marker_selection_threshold)
 
         genes = genes.loc[:, self.selected_genes[0]]
+
+        # join data sets
 
         x = x.join(genes, how='inner').fillna(0).values if x is not None else genes.fillna(0).values
         y = clinical_outcome.values
@@ -216,24 +219,24 @@ class SMLA(SelectMarker):
         assert isinstance(genes, pd.DataFrame), 'genes should a pd.DataFrame'
 
         if clinical_markers is not None:
-            X = clinical_markers.loc[:, self.selected_clinical[0]]
+            x = clinical_markers.loc[:, self.selected_clinical[0]]
 
         if treatments is not None:
-            X = X.join(treatments) if X is not None else treatments
+            x = x.join(treatments) if x is not None else treatments
 
         genes = genes.loc[:, self.selected_genes[0]]
 
-        X = X.join(genes, how='inner').fillna(0).values if X is not None else genes.fillna(0)
+        x = x.join(genes, how='inner').fillna(0).values if x is not None else genes.fillna(0)
 
-        X = np.maximum(0, np.minimum(1, self.scaler.transform(X)))
+        x = np.maximum(0, np.minimum(1, self.scaler.transform(x)))
 
-        assert X.shape[1] == self.fitted_shape[1], \
+        assert x.shape[1] == self.fitted_shape[1], \
             'new data should have same number of features used to fit model'
 
         if self.predictor == 'lightgbm':
-            result = self.model.predict(X)
+            result = self.model.predict(x)
         else:
-            result = self.model.predict_proba(X)
+            result = self.model.predict_proba(x)
 
         if len(result.shape) > 1:
             result = result[:, -1]

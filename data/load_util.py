@@ -18,29 +18,45 @@ def load_data_from_geo(geo_id, dst_path='.', silent=True):
     platforms = {}
     for gpl_name, gpl in dataset.gpls.items():
         platforms[str(gpl_name).upper()] = gpl.table
-    # loading characteristic keys
 
-    keys = set()
+    # loading keys
+    keys, metadata_keys = set(), set()
     for gsm_name, gsm in dataset.gsms.items():
+
+        # gettin all characteristics key
         for item in gsm.metadata['characteristics_ch1']:
-            k, _ = item.split(': ')
+            k, _ = item.strip().split(': ', 1)
             k = k.lower().strip().replace(' ', '_').replace('/', '_')
             keys.add(k)
 
-    # parsing metadata, characteristics, and genes
-    metadata, genes, characteristics = {'ID': []}, None, {'ID': []}
-    for gsm_name, gsm in dataset.gsms.items():
-        # metadata
-
-        metadata['ID'].append(gsm_name)
+        # getting all metadata keys
         for key, value in gsm.metadata.items():
+            k = key.lower().strip().replace(' ', '_').replace('/', '_')
             if key != 'characteristics_ch1':
-                key = key.lower().strip()
-                if key not in metadata:
-                    metadata[key] = []
-                metadata[key].append(', '.join(value))
+                metadata_keys.add(k)
 
-                # genes
+    # parsing metadata, characteristics, and genes
+    metadata, genes, characteristics = {'ID': [], **{c: [] for c in metadata_keys}}, None, {'ID': [],
+                                                                                            **{c: [] for c in keys}}
+
+    for gsm_name, gsm in dataset.gsms.items():
+
+        # metadata
+        metadata_local_keys = set()
+        metadata['ID'].append(gsm_name)
+
+        for key, value in gsm.metadata.items():
+
+            if key != 'characteristics_ch1':
+
+                key = key.lower().strip().replace(' ', '_').replace('/', '_')
+
+                if key not in metadata_local_keys:
+                    metadata[key].append(', '.join(value))
+                    metadata_local_keys.add(key)
+
+        for k in metadata_keys.difference(metadata_local_keys):
+            metadata[k].append(None)
 
         if gsm.table.shape[0] > 0:
 
@@ -53,22 +69,22 @@ def load_data_from_geo(geo_id, dst_path='.', silent=True):
                 genes = genes.join(tmp, how='left')
 
         # characteristics
-
         local_keys = set()
-
         characteristics['ID'].append(gsm_name)
 
         for item in gsm.metadata['characteristics_ch1']:
 
-            k, v = item.split(': ')
+            k, v = item.split(': ', 1)
+
             k = k.lower().strip().replace(' ', '_').replace('/', '_')
-            local_keys.add(k)
-            if k not in characteristics:
-                characteristics[k] = []
-            characteristics[k].append(v if v != '--' else None)
+
+            if k not in local_keys:
+                local_keys.add(k)
+                characteristics[k].append(v if v != '--' else None)
 
         for k in keys.difference(local_keys):
             characteristics[k].append(None)
+
     metadata = pd.DataFrame(metadata).set_index('ID')
     characteristics = pd.DataFrame(characteristics).set_index('ID')
 

@@ -46,4 +46,4 @@ def load_data_gse94873(verbose=-1, read_as_ndarray=False):
     """
     clinical, genes, outcome = load_data_gse('GSE94873', processing_gse94873, verbose, read_as_ndarray)
 
-    return clinical, genes, outcome
+    return clinical.fillna(0), genes.fillna(0), outcome

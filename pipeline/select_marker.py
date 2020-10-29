@@ -55,12 +55,12 @@ class SelectMarker(object):
         return int(round(len(entropies) * params.dot(betas), 0))
 
     @staticmethod
-    def select_markers(markers, outcome, threshold=0.0025):
+    def select_markers(markers, outcome, threshold=0.0025, n_features_limit=300):
         """
         """
 
         assert isinstance(markers, pd.DataFrame)
 
-        selected_markers = select_genes(markers, outcome, threshold=threshold)
+        selected_markers = select_genes(markers, outcome, threshold=threshold, n_features_limit=n_features_limit)
 
         return selected_markers
