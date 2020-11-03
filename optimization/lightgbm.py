@@ -14,7 +14,7 @@
 # ==============================================================================
 
 from skopt import gp_minimize
-from skopt.space import Real, Integer
+from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
 
 from sklearn.model_selection import StratifiedKFold
@@ -82,10 +82,12 @@ class LightGBMOptimizer(object):
             Real(1e-3, 1, name='bagging_fraction'),
             Real(0.01, 1, name='feature_fraction'),
             Real(0.01, 1, name='feature_fraction_bynode'),
-            # Integer(4, 20, name='max_depth'),
-            # Real(1e-4, 1e-1, name='learning_rate'),
-            # Real(1e-4, 1e-1, name='min_split_gain'),
-            # Real(1e-4, 1e-1, name='min_child_weight')
+            Integer(4, 20, name='max_depth'),
+            Real(1e-4, 1e-1, name='learning_rate'),
+            Real(1e-4, 1e-1, name='min_split_gain'),
+            Real(1e-4, 1e-1, name='min_child_weight'),
+            # Categorical([True, False], name='is_unbalance'),
+            # Categorical([True, False], name='extra_trees')
         ]
 
         @use_named_args(space)
@@ -100,10 +102,12 @@ class LightGBMOptimizer(object):
             bagging_fraction,
             feature_fraction,
             feature_fraction_bynode,
-            # max_depth,
-            # learning_rate,
-            # min_split_gain,
-            # min_child_weight
+            max_depth,
+            learning_rate,
+            min_split_gain,
+            min_child_weight,
+            # is_unbalance,
+            # extra_trees
         ):
             try:
                 scores = []
@@ -120,10 +124,13 @@ class LightGBMOptimizer(object):
                     'feature_fraction': feature_fraction,
                     'feature_fraction_bynode': feature_fraction_bynode,
 
-                    # 'max_depth': int(round(max_depth, ndigits=0)),
-                    # 'learning_rate': learning_rate,
-                    # 'min_split_gain': min_split_gain,
-                    # 'min_child_weight': min_child_weight,
+                    'max_depth': int(round(max_depth, ndigits=0)),
+                    'learning_rate': learning_rate,
+                    'min_split_gain': min_split_gain,
+                    'min_child_weight': min_child_weight,
+
+                    # 'is_unbalance': is_unbalance,
+                    # 'extra_trees': extra_trees,
 
                     'n_jobs': self.n_jobs,
                     'silent': self.verbose < 1,
@@ -164,10 +171,10 @@ class LightGBMOptimizer(object):
 
                 return result
 
-            except Exception as e:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
-                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                print(exc_type, fname, exc_tb.tb_lineno)
-                raise e
+            except:
+                # exc_type, exc_obj, exc_tb = sys.exc_info()
+                # fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                # print(exc_type, fname, exc_tb.tb_lineno)
+                return 999.99
 
         return self.execute_optimization(objective, space)

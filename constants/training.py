@@ -14,4 +14,4 @@
 # ==============================================================================
 
 RANDOM_STATE = 10  # defining random state to ensure reproducibility
-N_FOLDS = 10       # defining number of folds used in experiments
+N_FOLDS = 5        # defining number of folds used in experiments

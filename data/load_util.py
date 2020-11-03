@@ -120,15 +120,15 @@ def load_data_gse(geo_id, processing_function, verbose=-1, read_as_ndarray=False
     assert callable(processing_function), 'processing_function should be a callable object'
 
     # defining function constants
-    GEO_ID, CURRENT_PATH = geo_id, os.path.join(os.path.dirname(__file__))
-    DATASET_PATH = os.path.join(CURRENT_PATH, GEO_ID)
+    current_path = os.path.join(os.path.dirname(__file__))
+    dataset_path = os.path.join(current_path, geo_id)
 
-    if not os.path.exists(DATASET_PATH):
-        os.makedirs(DATASET_PATH)
+    if not os.path.exists(dataset_path):
+        os.makedirs(dataset_path)
 
-    clinical_path = os.path.join(DATASET_PATH, 'clinical.csv')
-    gene_path = os.path.join(DATASET_PATH, 'gene.csv')
-    outcome_path = os.path.join(DATASET_PATH, 'outcome.csv')
+    clinical_path = os.path.join(dataset_path, 'clinical.csv')
+    gene_path = os.path.join(dataset_path, 'gene.csv')
+    outcome_path = os.path.join(dataset_path, 'outcome.csv')
 
     if os.path.isfile(clinical_path) and os.path.isfile(gene_path) and os.path.isfile(outcome_path):
         clinical = pd.read_csv(clinical_path, index_col='ID')
@@ -138,7 +138,7 @@ def load_data_gse(geo_id, processing_function, verbose=-1, read_as_ndarray=False
     else:
 
         characteristics, genes, metadata, platforms = load_data_from_geo(
-            geo_id=GEO_ID, dst_path=os.path.join(CURRENT_PATH, GEO_ID), silent=verbose <= 0)
+            geo_id=geo_id, dst_path=os.path.join(current_path, geo_id), silent=verbose <= 0)
 
         clinical, outcome = processing_function(characteristics)
 
@@ -162,5 +162,26 @@ def load_data_gse(geo_id, processing_function, verbose=-1, read_as_ndarray=False
 
         if isinstance(outcome, pd.DataFrame):
             outcome = outcome.values
+
+    outcome = outcome[outcome.notnull()]
+
+    if genes is not None and outcome is not None and clinical is not None:
+        index = clinical.join(genes, how='inner').join(outcome, how='inner').index
+
+    elif outcome is not None and clinical is not None:
+        index = clinical.join(outcome, how='inner').index
+
+    else:
+        index = genes.join(outcome, how='inner').index
+
+    if genes is not None:
+        genes = genes.dropna(axis=1, how='any')
+        genes = genes.loc[index, :]
+
+    if clinical is not None:
+        clinical = clinical.loc[index, :].fillna(0)
+
+    if outcome is not None:
+        outcome = outcome.loc[index, :]
 
     return clinical, genes, outcome

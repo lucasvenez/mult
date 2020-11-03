@@ -5,7 +5,8 @@ import pandas as pd
 
 def processing_gse68465(clinical):
 
-    assert isinstance(clinical, pd.DataFrame), 'Invalid clinical type. It should be a pandas data frame.'
+    assert isinstance(clinical, pd.DataFrame), \
+        'Invalid clinical type. It should be a pandas data frame.'
 
     # cleaning clinical markers
     clinical = clinical.replace({'na': None, 'NA': None, 'Unknown': None})

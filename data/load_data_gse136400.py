@@ -8,6 +8,8 @@ def processing_gse136400(clinical):
 
     df = clinical.copy()
 
+    aaa = df['posttreatmentpretransplant'].copy()
+
     delete = ['eventid', 'imidgiven', 'time_btwn', 'sampleprotocol', 'gepprocesslocation',
               'ftprotocol', 'ftprotocolbase', 'datepulled', 'datelastcontact', 'sampledatetime', 'sampledatetime__1',
               'iss1', 'iss2', 'iss3', 'protocolsample', 'celfilernbx', 'datapulled', 'sampleid', 'chipdate',
@@ -73,15 +75,15 @@ def processing_gse136400(clinical):
     for c in ['gender', 'ageatsampledate', 'imids', 'iss', 'ldh', 'b2m']:
         df = df[~df[c].isnull()]
 
+    df['transplant'] = (df['numberoftransplants'] > 0).astype(int)
+    del df['numberoftransplants']
+
     for c in df.columns:
         if df[c].isnull().sum() / df.shape[0] > .05:
             del df[c]
 
     outcome = pd.DataFrame({'risk_group': (df['monthspfs'] > df['monthspfs'].mean())}).astype(float)
     del df['monthspfs']
-
-    df['transplant'] = (df['numberoftransplants'] > 0).astype(int)
-    del df['numberoftransplants']
 
     df = df.rename(columns={'ageatsampledate': 'age_at_diagnosis', 'imids': 'treatment'})
 
@@ -105,8 +107,4 @@ def load_data_gse136400(verbose=-1, read_as_ndarray=False):
     """
     clinical, genes, outcome = load_data_gse('GSE136400', processing_gse136400, verbose, read_as_ndarray)
 
-    clinical, genes = clinical.fillna(0), genes.fillna(0).apply(lambda x: np.exp(x))
-
-    index = clinical.join(genes, how='inner').join(outcome, how='inner').index
-
-    return clinical.loc[index, :], genes.loc[index, :], outcome.loc[index, :]
+    return clinical, genes.apply(lambda x: np.exp(x)), outcome

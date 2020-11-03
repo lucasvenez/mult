@@ -45,6 +45,8 @@ class SVMOptimizer(object):
         self.early_stopping_rounds = early_stopping_rounds
         self.fixed_parameters = fixed_parameters
 
+        self.iterations = []
+
     def execute_optimization(self, objective, space):
         params = gp_minimize(objective, space, n_calls=self.n_calls, random_state=self.random_state,
                              verbose=(self.verbose >= 0), n_jobs=self.n_jobs).x
@@ -99,7 +101,11 @@ class SVMOptimizer(object):
 
                     scores.append(log_loss(y_valid, y_hat))
 
-                return np.mean(scores)
+                result = np.mean(scores)
+
+                self.iterations.append((params, result))
+
+                return result
 
             except ValueError:
 

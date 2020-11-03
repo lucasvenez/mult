@@ -41,6 +41,8 @@ class LogisticRegressionOptimizer(object):
         self.optimization_details = {}
         self.fixed_parameters = fixed_parameters if fixed_parameters is None else dict()
 
+        self.iterations = []
+
     def optimize(self, x, y):
         """
         Description of each optimized hyperparameter. Checkout original description at
@@ -159,7 +161,11 @@ class LogisticRegressionOptimizer(object):
 
                     scores.append(log_loss(y_valid, y_hat))
 
-                return np.mean(scores)
+                result = np.mean(scores)
+
+                self.iterations.append((params, result))
+
+                return result
 
             except ValueError:
 

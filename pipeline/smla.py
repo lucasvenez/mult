@@ -31,6 +31,7 @@ from sklearn.model_selection import train_test_split
 
 import numpy as np
 import pandas as pd
+import os
 
 
 class SMLA(SelectMarker):
@@ -43,10 +44,13 @@ class SMLA(SelectMarker):
                  random_state=None,
                  use_gpu=False,
                  test_size=.2,
-                 n_gene_limit=None):
+                 n_gene_limit=None,
+                 output_path='.'):
 
         assert isinstance(optimizer_default_params, dict) or optimizer_default_params is None
         assert isinstance(model_default_params, dict) or model_default_params is None
+
+        self.output_path = output_path
 
         #
         self.predictor = predictor
@@ -99,7 +103,13 @@ class SMLA(SelectMarker):
             raise ValueError('predictor should be one of the following: '
                              'lightgbm, svm, knn, lr, or mlp')
 
-    def fit(self, genes, clinical_outcome, clinical_markers=None, treatments=None,
+        for subdir in ['selected_markers']:
+            path = os.path.join(self.output_path, subdir)
+            if not os.path.exists(path):
+                os.makedirs(path)
+
+    def fit(self, genes, outcome,
+            clinical_markers=None, treatments=None,
             clinical_marker_selection_threshold=0.05,
             genes_marker_selection_threshold=0.05,
             early_stopping_rounds=None):
@@ -108,21 +118,21 @@ class SMLA(SelectMarker):
 
         if clinical_markers is not None:
             self.selected_clinical = self.select_markers(
-                clinical_markers, clinical_outcome, threshold=clinical_marker_selection_threshold)
+                clinical_markers, outcome, threshold=clinical_marker_selection_threshold)
             x = clinical_markers.loc[:, self.selected_clinical[0]]
 
         if treatments is not None:
             x = x.join(treatments) if x is not None else treatments
 
         self.selected_genes = self.select_markers(
-            genes, clinical_outcome, threshold=genes_marker_selection_threshold)
+            genes, outcome, threshold=genes_marker_selection_threshold)
 
         genes = genes.loc[:, self.selected_genes[0]]
 
         # join data sets
 
         x = x.join(genes, how='inner').fillna(0).values if x is not None else genes.fillna(0).values
-        y = clinical_outcome.values
+        y = outcome.values
 
         x = self.scaler.fit_transform(x)
 
@@ -130,7 +140,8 @@ class SMLA(SelectMarker):
 
         self.fitted_shape = x.shape
 
-        self.optimized_params = self.optimizer.optimize(x, y)
+        # self.optimized_params = self.optimizer.optimize(x, y)
+        self.optimized_params = dict()
 
         self.optimized_params['random_state'] = self.random_state
 
@@ -166,19 +177,16 @@ class SMLA(SelectMarker):
     def fit_lightgbm(self, x, y, early_stopping_rounds):
 
         self.model = LGBMModel(**self.optimized_params)
+        self.model.fit(x, y)
 
-        if early_stopping_rounds is not None:
-
-            x_valid, y_valid = train_test_split(x, stratify=y, shuffle=True,
-                                                test_size=self.test_size, random_state=self.random_state)
-
-            self.model.fit(x, y,
-                           eval_set=Dataset(x_valid, y_valid),
-                           early_stopping_rounds=early_stopping_rounds,
-                           verbose=self.verbose)
-
-        else:
-            self.model.fit(x, y)
+        # if early_stopping_rounds is not None:
+        #     x_valid, y_valid = train_test_split(x, stratify=y, shuffle=True,
+        #                                        test_size=self.test_size, random_state=self.random_state)
+        #     self.model.fit(x, y,
+        #                  eval_set=Dataset(x_valid, y_valid),
+        #                  verbose=self.verbose)
+        # else:
+        #   self.model.fit(x, y)
 
     def fit_svm(self, x, y):
 

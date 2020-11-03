@@ -75,7 +75,3 @@ def load_data_gse135820(verbose=-1, read_as_ndarray=False):
     clinical, genes, outcome = load_data_gse('GSE135820', processing_gse135820, verbose, read_as_ndarray)
 
     return clinical, genes.apply(lambda x: np.exp(x)), outcome
-
-
-if __name__ == '__main__':
-    load_data_gse135820()

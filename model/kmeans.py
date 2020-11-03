@@ -70,7 +70,7 @@ class OptimizedKMeans(object):
             if self.verbose is not None and self.verbose > 0:
                 print('fitting model for {} clusters'.format(n_clusters))
             
-            clusterer = KMeans(n_clusters=n_clusters, random_state=self.random_state)
+            clusterer = KMeans(n_clusters=n_clusters, random_state=self.random_state, n_jobs=-1)
     
             cluster_labels = clusterer.fit_predict(x)
 

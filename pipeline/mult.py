@@ -91,6 +91,9 @@ class MuLT(SelectMarker):
         # export hyperparameters and selected genes?
         self.export_metadata = export_metadata
 
+        # optimizer
+        self.predictor_optimizer = None
+
         # creating required paths
         for subdir in ['selected_markers', 'dae']:
             path = os.path.join(self.output_path, subdir)
@@ -129,6 +132,9 @@ class MuLT(SelectMarker):
 
         # params
         self.lgb_optimized_params = None
+
+        # optimizer
+        self.predictor_optimizer = None
 
     def fit_genetic_profiling(self, markers, early_stopping_rounds=50):
         """
@@ -214,6 +220,7 @@ class MuLT(SelectMarker):
 
     def fit_dae(self,
                 markers,
+                keep_probability=.7,
                 decay_rate=0.1,
                 learning_rate=1e-4,
                 steps=50000,
@@ -234,10 +241,11 @@ class MuLT(SelectMarker):
             decoder_units=(int(markers.shape[1] * .4),
                            int(markers.shape[1] * .5)),
             encoder_activation_function='relu',
-            decoder_activation_function='relu',
+            decoder_activation_function='sigmoid',
             l2_scale=0.01)
 
         dae.fit(x=markers.values,
+                keep_probability=keep_probability,
                 steps=steps,
                 optimizer='adadelta',
                 loss='mse',
@@ -253,17 +261,6 @@ class MuLT(SelectMarker):
             if 'tmp' in file:
                 os.remove(os.path.join(self.dae_model_path, file))
 
-        dae = DenoisingAutoencoder(model_name=self.dae_model_name,
-                                   summaries_dir=self.dae_output_path,
-                                   random_state=self.random_state,
-                                   verbose=1)
-
-        dae.load(self.dae_model_path)
-
-        self.dda_minmax_scaler = MinMaxScaler()
-
-        self.dda_minmax_scaler.fit(dae.predict(markers.values))
-
     def predict_dae(self, markers):
         """
         """
@@ -278,18 +275,17 @@ class MuLT(SelectMarker):
 
         dae.load(self.dae_model_path)
 
-        inference = dae.predict(markers.values)
+        inference = dae.encode(markers.values)
 
         dae.close()
 
         del dae
 
-        return pd.DataFrame(self.dda_minmax_scaler.transform(inference),
+        return pd.DataFrame(inference,
                             index=markers.index,
-                            columns=[str(col) + '_DDA' for col in markers.columns])
+                            columns=['DDA{:04d}'.format(col) for col in range(inference.shape[1])])
 
     def fit(self,
-
             genes,
             outcome,
             clinical=None,
@@ -306,6 +302,7 @@ class MuLT(SelectMarker):
             dae_decay_rate=0.1,
             dae_learning_rate=1e-4,
             dae_steps=50000,
+            dae_keep_probability=.75,
 
             lgb_fixed_parameters=None,
             lgb_early_stopping_rounds=10,
@@ -337,8 +334,8 @@ class MuLT(SelectMarker):
             genes, outcome, threshold=gene_selection_threshold,
             n_features_limit=selected_genes_limit)
 
-        if self.n_gene_limit is None:
-            self.n_gene_limit = self.select_k_top_markers(self.selected_genes[2])
+        # if self.n_gene_limit is None:
+        #    self.n_gene_limit = self.select_k_top_markers(self.selected_genes[2])
 
         if self.n_gene_limit is not None:
             if 4 <= self.n_gene_limit < len(self.selected_genes[0]):
@@ -386,8 +383,10 @@ class MuLT(SelectMarker):
 
         self.genes_min_max_scaler = MinMaxScaler()
 
-        genes = pd.DataFrame(self.genes_min_max_scaler.fit_transform(genes),
+        genes = pd.DataFrame(self.genes_min_max_scaler.fit_transform(np.log1p(genes)),
                              index=genes.index, columns=genes.columns)
+
+        # genes = pd.DataFrame(np.log1p(genes), index=genes.index, columns=genes.columns)
 
         ############################################################################################
         # Genetic Profiling
@@ -415,10 +414,10 @@ class MuLT(SelectMarker):
         # Normalizing Clinical Data
         ############################################################################################
 
-        self.clinical_min_max_scaler = MinMaxScaler()
+        # self.clinical_min_max_scaler = MinMaxScaler()
 
-        x = pd.DataFrame(self.clinical_min_max_scaler.fit_transform(x),
-                         index=x.index, columns=x.columns)
+        # x = pd.DataFrame(self.clinical_min_max_scaler.fit_transform(x),
+        #                 index=x.index, columns=x.columns)
 
         x = x.fillna(0)
 
@@ -427,6 +426,7 @@ class MuLT(SelectMarker):
         ############################################################################################
 
         self.fit_dae(markers=genes,
+                     keep_probability=dae_keep_probability,
                      decay_rate=dae_decay_rate,
                      learning_rate=dae_learning_rate,
                      steps=dae_steps,
@@ -438,7 +438,8 @@ class MuLT(SelectMarker):
         # Joining all features
         ############################################################################################
 
-        x = x.join(genes, how='inner').join(dda, how='inner')
+        # x = x.join(genes, how='inner').join(dda, how='inner')
+        x = x.join(dda, how='inner')
 
         x, y = x.values, outcome.values
 
@@ -454,12 +455,14 @@ class MuLT(SelectMarker):
         if lgb_fixed_parameters is None:
             lgb_fixed_parameters = dict()
 
-        lgb_params = LightGBMOptimizer(
+        self.predictor_optimizer = LightGBMOptimizer(
             n_calls=optimization_n_call,
             n_folds=optimization_n_folds,
             fixed_parameters=lgb_fixed_parameters,
             early_stopping_rounds=optimization_early_stopping_rounds,
-            random_state=self.random_state).optimize(x, y)
+            random_state=self.random_state)
+
+        lgb_params = self.predictor_optimizer.optimize(x, y)
 
         self.lgb_optimized_params = lgb_params
 
@@ -469,12 +472,19 @@ class MuLT(SelectMarker):
         # Training
         ############################################################################################
 
-        kkfold = StratifiedKFold(predictor_n_folds, random_state=self.random_state)
+        if predictor_n_folds > 1:
+            kkfold = StratifiedKFold(predictor_n_folds, random_state=self.random_state)
+            splits = kkfold.split(x, y)
 
-        for iii, (t_index, v_index) in enumerate(kkfold.split(x, y)):
+        else:
+            splits = [(list(range(0, x.shape[0])), None)]
+
+        for iii, (t_index, v_index) in enumerate(splits):
 
             x_train, y_train = x[t_index, :], y[t_index]
-            x_valid, y_valid = x[v_index, :], y[v_index]
+
+            if v_index is not None:
+                x_valid, y_valid = x[v_index, :], y[v_index]
 
             ###############################################################################
             # Light GBM
@@ -484,42 +494,50 @@ class MuLT(SelectMarker):
 
             lgb.fit(
                 X=x_train, y=y_train,
-                eval_set=[(x_valid, y_valid)],
-                early_stopping_rounds=lgb_early_stopping_rounds,
+                eval_set=[(x_valid, y_valid)] if v_index is not None else None,
+                early_stopping_rounds=lgb_early_stopping_rounds if v_index is not None else None,
                 verbose=self.verbose is not None and self.verbose > 0)
 
             y_train_hat_lgb = lgb.predict(x_train)
-            y_valid_hat_lgb = lgb.predict(x_valid)
 
             self.lgb_models.append(lgb)
 
-            self.lgb_mins.append(min(np.min(y_train_hat_lgb), np.min(y_valid_hat_lgb)))
-            self.lgb_maxs.append(max(np.max(y_train_hat_lgb), np.max(y_valid_hat_lgb)))
+            if v_index is not None:
+                y_valid_hat_lgb = lgb.predict(x_valid)
+                self.lgb_mins.append(min(np.min(y_train_hat_lgb), np.min(y_valid_hat_lgb)))
+                self.lgb_maxs.append(max(np.max(y_train_hat_lgb), np.max(y_valid_hat_lgb)))
+
+            else:
+                self.lgb_mins.append(min(y_train_hat_lgb))
+                self.lgb_maxs.append(max(y_train_hat_lgb))
 
             ###############################################################################
             # Performance metrics
             ###############################################################################
 
-            # y_train_hat = (y_train_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
-            # y_valid_hat = (y_valid_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
-            y_train_hat = y_train_hat_lgb
-            y_valid_hat = y_valid_hat_lgb
+            y_train_hat = (y_train_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
+
+            if v_index is not None:
+                y_valid_hat = (y_valid_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
 
             self.predictor_train_losses.append(log_loss(y_train, y_train_hat))
             self.predictor_train_aucs.append(roc_auc_score(y_train, y_train_hat))
 
-            self.predictor_valid_losses.append(log_loss(y_valid, y_valid_hat))
-            self.predictor_valid_aucs.append(roc_auc_score(y_valid, y_valid_hat))
+            if v_index is not None:
+                self.predictor_valid_losses.append(log_loss(y_valid, y_valid_hat))
+                self.predictor_valid_aucs.append(roc_auc_score(y_valid, y_valid_hat))
 
         if self.verbose:
 
             print('Train mean log loss: {0:03}'.format(np.mean(self.predictor_train_losses)))
             print('Train mean AUC: {0:03}'.format(np.mean(self.predictor_train_aucs)))
 
-            print('Valid mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
-            print('Valid mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
+            if v_index is not None:
+                print('Valid mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
+                print('Valid mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
 
     def predict(self, genes, clinical=None, treatments=None):
+
         """
         """
 
@@ -543,7 +561,7 @@ class MuLT(SelectMarker):
         # Normalizing Gene Expression Data
         ############################################################################################
 
-        genes = pd.DataFrame(self.genes_min_max_scaler.transform(genes),
+        genes = pd.DataFrame(self.genes_min_max_scaler.transform(np.log1p(genes)),
                              index=genes.index, columns=genes.columns)
 
         ############################################################################################
@@ -564,9 +582,9 @@ class MuLT(SelectMarker):
         # Normalizing Clinical Data
         ############################################################################################
 
-        x = pd.DataFrame(
-            self.clinical_min_max_scaler.transform(x),
-            index=x.index, columns=x.columns)
+        # x = pd.DataFrame(
+        #    self.clinical_min_max_scaler.transform(x),
+        #    index=x.index, columns=x.columns)
 
         x = x.fillna(0)
 
@@ -580,7 +598,8 @@ class MuLT(SelectMarker):
         # Joining all features
         ############################################################################################
 
-        x = x.join(genes, how='inner').join(dda, how='inner').values
+        # x = x.join(genes, how='inner').join(dda, how='inner').values
+        x = x.join(dda, how='inner').values
 
         ############################################################################################
         # Predicting
@@ -596,8 +615,9 @@ class MuLT(SelectMarker):
 
             lgb_y_hat = lgb.predict(x)
 
-            lgb_y_hat = np.maximum(0, np.minimum(1., (
-                    lgb_y_hat - self.lgb_mins[i]) / (self.lgb_maxs[i] - self.lgb_mins[i])))
+            lgb_y_hat = (lgb_y_hat - self.lgb_mins[i]) / (self.lgb_maxs[i] - self.lgb_mins[i])
+
+            lgb_y_hat = np.maximum(0., np.minimum(1., lgb_y_hat))
 
             ############################################################################################
             # Final score

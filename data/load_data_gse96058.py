@@ -4,6 +4,7 @@ from contextlib import closing
 
 import os
 import shutil
+import numpy as np
 import pandas as pd
 import urllib.request as request
 
@@ -59,11 +60,8 @@ def processing_gse96058(clinical):
 
 def load_data_gse96058(verbose=-1, read_as_ndarray=False):
     """
-    This method loads the data set of the project GSE68465 available at
-    https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE68465. This project
-    reports a large, training/testing, multi-site, blinded validation study to
-    characterize the performance of several prognostic models based on
-    gene expression for 442 lung adenocarcinomas.
+    This method loads the data set of the project GSE96058 available at
+    https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE96058.
 
     :param verbose: (int) print logging messages if greater than 0 (default: -1)
     :param read_as_ndarray: (bool) reads data as pandas data frame if false and
@@ -83,28 +81,26 @@ def load_data_gse96058(verbose=-1, read_as_ndarray=False):
 
 def get_gene_expressions(columns):
 
-    BASE_PATH = os.path.join(os.path.dirname(__file__))
+    base_path = os.path.join(os.path.dirname(__file__),  'GSE96058')
 
-    BASE_PATH = os.path.join(BASE_PATH, 'GSE96058')
-
-    final_genes_filename = os.path.join(BASE_PATH, 'genes.csv')
+    final_genes_filename = os.path.join(base_path, 'genes.csv')
 
     if not os.path.exists(final_genes_filename):
 
-        if not os.path.exists(BASE_PATH):
-            os.makedirs(BASE_PATH)
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
 
         filename = 'GSE96058_gene_expression_3273_samples_and_136_replicates_transformed.csv.gz'
 
         ftp_url = 'ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE96nnn/GSE96058/suppl/' \
                   'GSE96058_gene_expression_3273_samples_and_136_replicates_transformed.csv.gz'
 
-        if not os.path.exists(os.path.join(BASE_PATH, filename)):
+        if not os.path.exists(os.path.join(base_path, filename)):
             with closing(request.urlopen(ftp_url)) as r:
-                with open(os.path.join(BASE_PATH, filename), 'wb') as f:
+                with open(os.path.join(base_path, filename), 'wb') as f:
                     shutil.copyfileobj(r, f)
 
-        genes = pd.read_csv(os.path.join(BASE_PATH, filename), sep=',')
+        genes = pd.read_csv(os.path.join(base_path, filename), sep=',')
 
         genes = genes.rename(columns={'Unnamed: 0': 'ID'}).set_index('ID')
 
@@ -119,4 +115,4 @@ def get_gene_expressions(columns):
 
     genes = genes.T
 
-    return genes
+    return genes.apply(lambda x: np.exp(x))

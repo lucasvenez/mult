@@ -21,7 +21,7 @@ import os
 CLINICAL_OUTCOME = 'response_best_response_first_line'
 
 
-def load_data():
+def load_data_mmrf():
     """
 
     :return:
