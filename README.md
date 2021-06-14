@@ -22,10 +22,6 @@ Our experiments cover the following topics:
 
 > **_Note:_** All *.ipynb files correspond to the topics number above. To reproduce experiments just run *.ipynb files following numeric order.
 
-## Publication
-
-At this moment, the paper named **_"Machine learning predicts treatment sensitivity in multiple myeloma based on molecular and clinical information coupled with drug response"_** describing all motivations and experiments related to this repository is under consideration in a research journal.
-
 ## Contact
 
 lucasvenez at gmail dot com
