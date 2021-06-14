@@ -31,8 +31,8 @@ warnings.filterwarnings("ignore")
 class KNNOptimizer(object):
 
     def __init__(self,
-                 n_folds=3, n_calls=50, shuffle=True,
-                 fixed_parameters={}, random_state=None, verbose=-1, n_jobs=-1):
+                 n_folds=10, n_calls=50, shuffle=True,
+                 fixed_parameters=None, random_state=None, verbose=-1, n_jobs=-1):
 
         self.n_calls = n_calls
         self.n_folds = n_folds
@@ -41,7 +41,7 @@ class KNNOptimizer(object):
         self.verbose = verbose
         self.n_jobs = n_jobs
         self.optimization_details = {}
-        self.fixed_parameters = fixed_parameters
+        self.fixed_parameters = fixed_parameters or dict()
 
         self.iterations = []
 
@@ -60,8 +60,7 @@ class KNNOptimizer(object):
             Integer(1, 30, name='n_neighbors'),
             Categorical(['uniform', 'distance'], name='weights'),
             Integer(1, 30, name='leaf_size'),
-            Integer(1, 5, name='p')
-        ]
+            Integer(1, 5, name='p')]
 
         @use_named_args(space)
         def objective(

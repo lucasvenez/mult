@@ -59,6 +59,7 @@ class MuLT(SelectMarker):
         self.genes_min_max_scaler = None
         self.clinical_min_max_scaler = None
         self.dda_minmax_scaler = None
+        self.raw_genes_min_max_scaler = None
 
         # selected markers
         self.selected_clinical = None
@@ -107,6 +108,7 @@ class MuLT(SelectMarker):
         self.genes_min_max_scaler = None
         self.clinical_min_max_scaler = None
         self.dda_minmax_scaler = None
+        self.raw_genes_min_max_scaler = None
 
         # selected markers
         self.selected_clinical = None
@@ -185,7 +187,7 @@ class MuLT(SelectMarker):
 
         self.embed = tf.keras.Sequential()
         self.embed.add(tf.keras.layers.Embedding(5, output_dim=output_dim, input_length=1))
-        self.embed.add(tf.keras.layers.Dense(20, activation='relu'))
+        self.embed.add(tf.keras.layers.Dense(20, activation='tanh'))
         self.embed.add(tf.keras.layers.Dense(1, activation='sigmoid'))
 
         self.embed.compile(loss='binary_crossentropy', optimizer='adam')
@@ -240,7 +242,7 @@ class MuLT(SelectMarker):
                            int(markers.shape[1] * .3)),
             decoder_units=(int(markers.shape[1] * .4),
                            int(markers.shape[1] * .5)),
-            encoder_activation_function='relu',
+            encoder_activation_function='tanh',
             decoder_activation_function='sigmoid',
             l2_scale=0.01)
 
@@ -259,7 +261,10 @@ class MuLT(SelectMarker):
 
         for file in os.listdir(self.dae_experiment_path):
             if 'tmp' in file:
-                os.remove(os.path.join(self.dae_model_path, file))
+                try:
+                    os.remove(os.path.join(self.dae_model_path, file))
+                except:
+                    pass
 
     def predict_dae(self, markers):
         """
@@ -303,15 +308,14 @@ class MuLT(SelectMarker):
             dae_learning_rate=1e-4,
             dae_steps=50000,
             dae_keep_probability=.75,
+            
+            use_predictor=True,
 
             lgb_fixed_parameters=None,
             lgb_early_stopping_rounds=10,
 
             predictor_n_folds=5,
-            minor_class_augmentation=False,
-            gene_clustering_max_dimension=1000,
-            selected_genes_limit=300,
-            selected_clinical_markers_limit=300):
+            minor_class_augmentation=False):
         """
         """
 
@@ -327,12 +331,10 @@ class MuLT(SelectMarker):
 
         if clinical is not None:
             self.selected_clinical = self.select_markers(
-                clinical, outcome, threshold=clinical_marker_selection_threshold,
-                n_features_limit=selected_clinical_markers_limit)
+                clinical, outcome, threshold=clinical_marker_selection_threshold, random_state=self.random_state)
 
         self.selected_genes = self.select_markers(
-            genes, outcome, threshold=gene_selection_threshold,
-            n_features_limit=selected_genes_limit)
+            genes, outcome, threshold=gene_selection_threshold, random_state=self.random_state)
 
         # if self.n_gene_limit is None:
         #    self.n_gene_limit = self.select_k_top_markers(self.selected_genes[2])
@@ -377,6 +379,13 @@ class MuLT(SelectMarker):
 
         genes = genes.loc[:, self.selected_genes[0]]
 
+        #
+        self.raw_genes_min_max_scaler = MinMaxScaler()
+
+        genes_norm = self.raw_genes_min_max_scaler.fit_transform(genes)
+
+        genes_norm = pd.DataFrame(genes_norm, columns=genes.columns, index=genes.index)
+
         ############################################################################################
         # Normalizing Gene Expression Data
         ############################################################################################
@@ -386,14 +395,12 @@ class MuLT(SelectMarker):
         genes = pd.DataFrame(self.genes_min_max_scaler.fit_transform(np.log1p(genes)),
                              index=genes.index, columns=genes.columns)
 
-        # genes = pd.DataFrame(np.log1p(genes), index=genes.index, columns=genes.columns)
-
         ############################################################################################
         # Genetic Profiling
         ############################################################################################
 
-        self.fit_genetic_profiling(genes)
-        profiling = self.predict_genetic_profiling(genes)
+        self.fit_genetic_profiling(genes_norm)
+        profiling = self.predict_genetic_profiling(genes_norm)
 
         x = pd.concat([x, profiling], axis=1) if x is not None else profiling
 
@@ -401,25 +408,11 @@ class MuLT(SelectMarker):
         # Gene Clustering
         ############################################################################################
 
-        if gene_clustering_max_dimension is not None and genes.shape[0] > gene_clustering_max_dimension:
-            self.fit_gene_clustering(genes.sample(n=gene_clustering_max_dimension, random_state=self.random_state))
-        else:
-            self.fit_gene_clustering(genes)
+        self.fit_gene_clustering(genes_norm)
 
-        gene_clusters = self.predict_gene_clustering(genes)
+        gene_clusters = self.predict_gene_clustering(genes_norm)
 
         x = pd.concat([x, gene_clusters], axis=1)
-
-        ############################################################################################
-        # Normalizing Clinical Data
-        ############################################################################################
-
-        # self.clinical_min_max_scaler = MinMaxScaler()
-
-        # x = pd.DataFrame(self.clinical_min_max_scaler.fit_transform(x),
-        #                 index=x.index, columns=x.columns)
-
-        x = x.fillna(0)
 
         ############################################################################################
         # Denoising Autoencoder
@@ -432,130 +425,145 @@ class MuLT(SelectMarker):
                      steps=dae_steps,
                      early_stopping_rounds=dae_early_stopping_rounds)
 
-        dda = self.predict_dae(genes)
+        if use_predictor:
+        
+            dda = self.predict_dae(genes)
 
-        ############################################################################################
-        # Joining all features
-        ############################################################################################
+            ############################################################################################
+            # Joining all features
+            ############################################################################################
 
-        # x = x.join(genes, how='inner').join(dda, how='inner')
-        x = x.join(dda, how='inner')
+            x = x.join(genes_norm).join(dda, how='inner').fillna(0)
 
-        x, y = x.values, outcome.values
+            x, y = x.values, outcome.values
 
-        if minor_class_augmentation:
-            smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
-            x, y = smote.fit_resample(x, y)
-            del smote
+            if minor_class_augmentation:
+                smote = SMOTE(sampling_strategy='minority', random_state=self.random_state, n_jobs=-1)
+                x, y = smote.fit_resample(x, y)
+                del smote
 
-        ############################################################################################
-        # LightGBM Hyperparameter Optimization
-        ############################################################################################
+            ############################################################################################
+            # LightGBM Hyper parameter Optimization
+            ############################################################################################
 
-        if lgb_fixed_parameters is None:
-            lgb_fixed_parameters = dict()
+            if lgb_fixed_parameters is None:
+                lgb_fixed_parameters = dict()
 
-        self.predictor_optimizer = LightGBMOptimizer(
-            n_calls=optimization_n_call,
-            n_folds=optimization_n_folds,
-            fixed_parameters=lgb_fixed_parameters,
-            early_stopping_rounds=optimization_early_stopping_rounds,
-            random_state=self.random_state)
+            self.predictor_optimizer = LightGBMOptimizer(
+                n_calls=optimization_n_call,
+                n_folds=optimization_n_folds,
+                fixed_parameters=lgb_fixed_parameters,
+                early_stopping_rounds=optimization_early_stopping_rounds,
+                random_state=self.random_state)
 
-        lgb_params = self.predictor_optimizer.optimize(x, y)
+            lgb_params = self.predictor_optimizer.optimize(x, y)
 
-        self.lgb_optimized_params = lgb_params
+            self.lgb_optimized_params = lgb_params
 
-        lgb_params = {**lgb_params, **lgb_fixed_parameters}
+            lgb_params = {**lgb_params, **lgb_fixed_parameters}
 
-        ############################################################################################
-        # Training
-        ############################################################################################
+            ############################################################################################
+            # Training
+            ############################################################################################
 
-        if predictor_n_folds > 1:
-            kkfold = StratifiedKFold(predictor_n_folds, random_state=self.random_state)
-            splits = kkfold.split(x, y)
-
-        else:
-            splits = [(list(range(0, x.shape[0])), None)]
-
-        for iii, (t_index, v_index) in enumerate(splits):
-
-            x_train, y_train = x[t_index, :], y[t_index]
-
-            if v_index is not None:
-                x_valid, y_valid = x[v_index, :], y[v_index]
-
-            ###############################################################################
-            # Light GBM
-            ###############################################################################
-
-            lgb = lightgbm.LGBMModel(**lgb_params)
-
-            lgb.fit(
-                X=x_train, y=y_train,
-                eval_set=[(x_valid, y_valid)] if v_index is not None else None,
-                early_stopping_rounds=lgb_early_stopping_rounds if v_index is not None else None,
-                verbose=self.verbose is not None and self.verbose > 0)
-
-            y_train_hat_lgb = lgb.predict(x_train)
-
-            self.lgb_models.append(lgb)
-
-            if v_index is not None:
-                y_valid_hat_lgb = lgb.predict(x_valid)
-                self.lgb_mins.append(min(np.min(y_train_hat_lgb), np.min(y_valid_hat_lgb)))
-                self.lgb_maxs.append(max(np.max(y_train_hat_lgb), np.max(y_valid_hat_lgb)))
+            if predictor_n_folds > 1:
+                kkfold = StratifiedKFold(predictor_n_folds, random_state=self.random_state)
+                splits = kkfold.split(x, y)
 
             else:
-                self.lgb_mins.append(min(y_train_hat_lgb))
-                self.lgb_maxs.append(max(y_train_hat_lgb))
+                splits = [(list(range(0, x.shape[0])), None)]
 
-            ###############################################################################
-            # Performance metrics
-            ###############################################################################
+            for iii, (t_index, v_index) in enumerate(splits):
 
-            y_train_hat = (y_train_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
+                x_train, y_train = x[t_index, :], y[t_index]
 
-            if v_index is not None:
-                y_valid_hat = (y_valid_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
+                if v_index is not None:
+                    x_valid, y_valid = x[v_index, :], y[v_index]
 
-            self.predictor_train_losses.append(log_loss(y_train, y_train_hat))
-            self.predictor_train_aucs.append(roc_auc_score(y_train, y_train_hat))
+                ###############################################################################
+                # Light GBM
+                ###############################################################################
 
-            if v_index is not None:
-                self.predictor_valid_losses.append(log_loss(y_valid, y_valid_hat))
-                self.predictor_valid_aucs.append(roc_auc_score(y_valid, y_valid_hat))
+                lgb = lightgbm.LGBMModel(**lgb_params)
 
-        if self.verbose:
+                lgb.fit(
+                    X=x_train, y=y_train,
+                    eval_set=[(x_valid, y_valid)] if v_index is not None else None,
+                    early_stopping_rounds=lgb_early_stopping_rounds if v_index is not None else None,
+                    verbose=self.verbose is not None and self.verbose > 0)
 
-            print('Train mean log loss: {0:03}'.format(np.mean(self.predictor_train_losses)))
-            print('Train mean AUC: {0:03}'.format(np.mean(self.predictor_train_aucs)))
+                y_train_hat_lgb = lgb.predict(x_train)
 
-            if v_index is not None:
-                print('Valid mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
-                print('Valid mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
+                self.lgb_models.append(lgb)
 
-    def predict(self, genes, clinical=None, treatments=None):
+                if v_index is not None:
+                    y_valid_hat_lgb = lgb.predict(x_valid)
+                    self.lgb_mins.append(min(np.min(y_train_hat_lgb), np.min(y_valid_hat_lgb)))
+                    self.lgb_maxs.append(max(np.max(y_train_hat_lgb), np.max(y_valid_hat_lgb)))
 
+                else:
+                    self.lgb_mins.append(min(y_train_hat_lgb))
+                    self.lgb_maxs.append(max(y_train_hat_lgb))
+
+                ###############################################################################
+                # Performance metrics
+                ###############################################################################
+
+                y_train_hat = (y_train_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
+
+                if v_index is not None:
+                    y_valid_hat = (y_valid_hat_lgb - self.lgb_mins[-1]) / (self.lgb_maxs[-1] - self.lgb_mins[-1])
+
+                self.predictor_train_losses.append(log_loss(y_train, y_train_hat))
+                self.predictor_train_aucs.append(roc_auc_score(y_train, y_train_hat))
+
+                if v_index is not None:
+                    self.predictor_valid_losses.append(log_loss(y_valid, y_valid_hat))
+                    self.predictor_valid_aucs.append(roc_auc_score(y_valid, y_valid_hat))
+
+            if self.verbose:
+
+                print('Train mean log loss: {0:03}'.format(np.mean(self.predictor_train_losses)))
+                print('Train mean AUC: {0:03}'.format(np.mean(self.predictor_train_aucs)))
+
+                if v_index is not None:
+                    print('Valid mean log loss: {0:03}'.format(np.mean(self.predictor_valid_losses)))
+                    print('Valid mean AUC: {0:03}'.format(np.mean(self.predictor_valid_aucs)))
+
+    def transform(self, genes, clinical=None, treatments=None, add_gc=True, add_pc=True, add_dda=True,
+                  as_data_frame=False):
         """
+
+        :param genes:
+        :param clinical:
+        :param treatments:
+        :param add_gc:
+        :param add_pc:
+        :param add_dda:
+        :param as_data_frame:
+        :return:
         """
 
         assert len(self.lgb_models) > 0
 
-        x = None
+        X = None
 
         ############################################################################################
         # Feature Selection
         ############################################################################################
 
         if clinical is not None:
-            x = clinical[self.selected_clinical[0]]
+            X = clinical[self.selected_clinical[0]]
 
         if treatments is not None:
-            x = x.join(treatments) if x is not None else treatments
+            X = X.join(treatments) if X is not None else treatments
 
         genes = genes[self.selected_genes[0]]
+
+        #
+        genes_norm = self.raw_genes_min_max_scaler.transform(genes)
+
+        genes_norm = pd.DataFrame(genes_norm, columns=genes.columns, index=genes.index)
 
         ############################################################################################
         # Normalizing Gene Expression Data
@@ -565,41 +573,46 @@ class MuLT(SelectMarker):
                              index=genes.index, columns=genes.columns)
 
         ############################################################################################
-        # Genetic Profiling
+        # Patient Clustering
         ############################################################################################
 
-        profiling = self.predict_genetic_profiling(genes)
-        x = pd.concat([x, profiling], axis=1) if x is not None else profiling
+        if add_pc is True:
+            profiling = self.predict_genetic_profiling(genes_norm)
+            X = pd.concat([X, profiling], axis=1) if X is not None else profiling
 
         ############################################################################################
         # Gene Clustering
         ############################################################################################
 
-        gene_clusters = self.predict_gene_clustering(genes)
-        x = pd.concat([x, gene_clusters], axis=1)
-
-        ############################################################################################
-        # Normalizing Clinical Data
-        ############################################################################################
-
-        # x = pd.DataFrame(
-        #    self.clinical_min_max_scaler.transform(x),
-        #    index=x.index, columns=x.columns)
-
-        x = x.fillna(0)
+        if add_gc is True:
+            gene_clusters = self.predict_gene_clustering(genes_norm)
+            X = pd.concat([X, gene_clusters], axis=1)
 
         ############################################################################################
         # Denoising Autoencoder
         ############################################################################################
 
-        dda = self.predict_dae(genes)
+        if add_dda is True:
+            dda = self.predict_dae(genes)
 
         ############################################################################################
         # Joining all features
         ############################################################################################
 
-        # x = x.join(genes, how='inner').join(dda, how='inner').values
-        x = x.join(dda, how='inner').values
+        X = X.join(genes_norm, how='inner')
+
+        if add_dda is True:
+            X = X.join(dda, how='inner')
+
+        X = X.fillna(0)
+
+        return X.values if as_data_frame is False else X
+
+    def predict(self, genes, clinical=None, treatments=None):
+        """
+        """
+
+        X = self.transform(genes, clinical, treatments)
 
         ############################################################################################
         # Predicting
@@ -613,11 +626,11 @@ class MuLT(SelectMarker):
             # LightGBM
             ############################################################################################
 
-            lgb_y_hat = lgb.predict(x)
+            lgb_y_hat = lgb.predict(X, num_iteration=lgb.best_iteration_)
 
-            lgb_y_hat = (lgb_y_hat - self.lgb_mins[i]) / (self.lgb_maxs[i] - self.lgb_mins[i])
+            # lgb_y_hat = (lgb_y_hat - self.lgb_mins[i]) / (self.lgb_maxs[i] - self.lgb_mins[i])
 
-            lgb_y_hat = np.maximum(0., np.minimum(1., lgb_y_hat))
+            # lgb_y_hat = np.maximum(0., np.minimum(1., lgb_y_hat))
 
             ############################################################################################
             # Final score

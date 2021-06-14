@@ -18,7 +18,7 @@ from optimization import KNNOptimizer, MLPOptimizer, RFOptimizer
 
 from pipeline import SelectMarker
 
-from lightgbm import LGBMModel, Dataset
+from lightgbm import LGBMModel
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
@@ -45,7 +45,11 @@ class SMLA(SelectMarker):
                  use_gpu=False,
                  test_size=.2,
                  n_gene_limit=None,
-                 output_path='.'):
+                 output_path='.',
+                 experiment_number=1,
+                 number_of_experiments=1,
+                 export_metadata=True
+                 ):
 
         assert isinstance(optimizer_default_params, dict) or optimizer_default_params is None
         assert isinstance(model_default_params, dict) or model_default_params is None
@@ -81,7 +85,12 @@ class SMLA(SelectMarker):
         self.selected_genes = None
 
         #
-        if self.predictor == 'lightgbm':
+        self.experiment_number = experiment_number
+        self.number_of_experiments = number_of_experiments
+        self.export_metadata = export_metadata
+
+        #
+        if self.predictor == 'lightgbm':            
             self.optimizer = LightGBMOptimizer(**self.optimizer_default_params)
 
         elif self.predictor == 'svm':
@@ -108,11 +117,13 @@ class SMLA(SelectMarker):
             if not os.path.exists(path):
                 os.makedirs(path)
 
-    def fit(self, genes, outcome,
+    def fit(self,
+            genes,
+            outcome,
             clinical_markers=None, treatments=None,
-            clinical_marker_selection_threshold=0.05,
-            genes_marker_selection_threshold=0.05,
-            early_stopping_rounds=None):
+            clinical_marker_selection_threshold=0.1,
+            genes_marker_selection_threshold=0.1,
+            early_stopping_rounds=100):
 
         # feature selection
 
@@ -125,7 +136,28 @@ class SMLA(SelectMarker):
             x = x.join(treatments) if x is not None else treatments
 
         self.selected_genes = self.select_markers(
-            genes, outcome, threshold=genes_marker_selection_threshold)
+            genes, outcome, threshold=genes_marker_selection_threshold, random_state=self.random_state)
+
+        if self.export_metadata:
+
+            if self.selected_clinical is not None:
+                pd.DataFrame({'clinical_marker': self.selected_clinical[0],
+                              'pvalue': self.selected_clinical[1],
+                              'entropy': self.selected_clinical[2]}).to_csv(
+                    os.path.join(
+                        self.output_path, 'selected_markers',
+                        'clinical_{0:03}_{1:03}.csv'.format(
+                            self.experiment_number, self.number_of_experiments)),
+                    index=False)
+
+            pd.DataFrame({'gene': self.selected_genes[0],
+                          'pvalue': self.selected_genes[1],
+                          'entropy': self.selected_genes[2]}).to_csv(
+                os.path.join(
+                    self.output_path, 'selected_markers',
+                    'genes_{0:03}_{1:03}.csv'.format(
+                        self.experiment_number, self.number_of_experiments)),
+                index=False)
 
         genes = genes.loc[:, self.selected_genes[0]]
 
@@ -140,11 +172,8 @@ class SMLA(SelectMarker):
 
         self.fitted_shape = x.shape
 
-        # self.optimized_params = self.optimizer.optimize(x, y)
-        self.optimized_params = dict()
-
+        self.optimized_params = self.optimizer.optimize(x, y)
         self.optimized_params['random_state'] = self.random_state
-
         self.optimized_params['n_jobs'] = -1
 
         if self.model_default_params is not None:
@@ -179,14 +208,15 @@ class SMLA(SelectMarker):
         self.model = LGBMModel(**self.optimized_params)
         self.model.fit(x, y)
 
-        # if early_stopping_rounds is not None:
-        #     x_valid, y_valid = train_test_split(x, stratify=y, shuffle=True,
-        #                                        test_size=self.test_size, random_state=self.random_state)
-        #     self.model.fit(x, y,
-        #                  eval_set=Dataset(x_valid, y_valid),
-        #                  verbose=self.verbose)
-        # else:
-        #   self.model.fit(x, y)
+        if early_stopping_rounds is not None and early_stopping_rounds > 0:
+
+            x_train, x_valid, y_train, y_valid = train_test_split(x, y, stratify=y, shuffle=True,
+                                                test_size=self.test_size, random_state=self.random_state)
+
+            self.model.fit(x_train, y_train, eval_set=[(x_valid, y_valid)], verbose=self.verbose)
+
+        else:
+            self.model.fit(x, y)
 
     def fit_svm(self, x, y):
 

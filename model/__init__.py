@@ -26,3 +26,4 @@ from model.som import *
 from model.pre_processing import *
 from model.feature_selector import *
 from model.genetic_features import *
+from model.stack import *

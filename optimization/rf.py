@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore")
 class RFOptimizer(object):
 
     def __init__(self,
-                 n_folds=3, n_calls=50, shuffle=True,
+                 n_folds=10, n_calls=10, shuffle=True,
                  fixed_parameters={}, random_state=None,
                  verbose=-1, n_jobs=-1):
 
@@ -95,10 +95,10 @@ class RFOptimizer(object):
             Integer(1, 100, name='max_depth'),
             Integer(1, 100, name='min_samples_split'),
             Integer(1, 100, name='min_samples_leaf'),
-            Real(0.1, 1, name='min_weight_fraction_leaf'),
+            Real(1e-8, 1, name='min_weight_fraction_leaf'),
             Integer(1, 100, name='max_leaf_nodes'),
-            Real(0.1, 1, name='min_impurity_decrease'),
-            Real(0.1, 1, name='min_impurity_split')
+            Real(1e-8, 1, name='min_impurity_decrease'),
+            Real(1e-8, 1, name='min_impurity_split')
         ]
 
         @use_named_args(space)

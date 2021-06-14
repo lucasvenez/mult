@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-from correlation import select_genes
+from correlation import xfs
 
 import pandas as pd
 import numpy as np
@@ -55,12 +55,12 @@ class SelectMarker(object):
         return int(round(len(entropies) * params.dot(betas), 0))
 
     @staticmethod
-    def select_markers(markers, outcome, threshold=0.0025, n_features_limit=300):
+    def select_markers(markers, outcome, threshold=0.0025, random_state=None):
         """
         """
 
         assert isinstance(markers, pd.DataFrame)
 
-        selected_markers = select_genes(markers, outcome, threshold=threshold, n_features_limit=n_features_limit)
+        selected_markers = xfs(markers, outcome, acceptable_noise=threshold, random_state=random_state)
 
         return selected_markers

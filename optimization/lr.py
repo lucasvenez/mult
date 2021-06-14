@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore")
 class LogisticRegressionOptimizer(object):
 
     def __init__(self,
-                 n_folds=3, n_calls=50, shuffle=True,
+                 n_folds=10, n_calls=10, shuffle=True,
                  fixed_parameters=None, random_state=None, verbose=-1, n_jobs=-1):
         self.n_calls = n_calls
         self.n_folds = n_folds

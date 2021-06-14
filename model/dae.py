@@ -45,6 +45,7 @@ class DenoisingAutoencoder(Model):
         self.model_name = model_name
         self.random_state = random_state
         self.best_error = np.inf
+        self.prob = None
         
         with self.graph.as_default():
             self.session = tf.Session(graph=self.graph)
@@ -95,11 +96,11 @@ class DenoisingAutoencoder(Model):
                     shape=tf.shape(self.input), minval=0.0, maxval=1.0,
                     dtype=tf.float32, name=None, seed=self.random_state)
                 
-                prob = tf.where(prob < 1. - self.keep_probability, 
+                self.prob = tf.where(prob < 1. - self.keep_probability,
                                 tf.ones_like(self.input, dtype=tf.float32),
                                 tf.zeros_like(self.input, dtype=tf.float32))
 
-                self.corrupted_input = tf.add(self.input, tf.multiply(prob, mask))
+                self.corrupted_input = tf.add(self.input, tf.multiply(self.prob, mask))
 
             with tf.name_scope('encoder'):
 
@@ -479,7 +480,7 @@ class DenoisingAutoencoder(Model):
 
                 self.loss = self.get_loss(loss)(self.input, self.decoder)
 
-                self.loss = tf.reduce_mean(self.loss)
+                self.loss = tf.reduce_mean(self.loss * self.prob)
 
                 tf.summary.scalar('dae', self.loss)
 

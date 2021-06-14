@@ -38,10 +38,7 @@ def entropy_stats(values):
     return entropy(values.value_counts(), base=2)
 
 
-def select_genes_mic(genes, response, threshold=0.05, verbose=0):
-    #
-    # Gene Selection
-    #
+def continuous_feature_selection(genes, response, threshold=0.05, verbose=0):
     
     excluded_genes = []
     
@@ -111,11 +108,16 @@ def ks2samp_pvalue(i):
     return var, p, e
 
 
-def select_genes(genes, response, threshold=0.05, n_features_limit=300):
-    #
-    # Gene Selection
-    #
-    
+def feature_selection(genes, response, threshold=0.05, n_features_limit=None):
+    """
+
+    :param genes:
+    :param response:
+    :param threshold:
+    :param n_features_limit:
+    :return: (tuple) a tuple containing selected feature names, p-values of a differential expression based on ks-test,
+    and entropy values
+    """
     excluded_genes = []
     
     gene_table = {'variable': [], 'score': [], 'entropy': []}
@@ -393,6 +395,7 @@ def pearson(pair):
     except:
         
         return None
+
 
 def ks(pair):
 

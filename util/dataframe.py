@@ -2,8 +2,9 @@ import pandas as pd
 
 
 def to_data_frame(x, prefix, index):
-    
-    assert len(x) == len(index), 'x and index shapes should match, but they have {} and {}, repsectively'.format(len(x), len(index))
+
+    assert len(x) == len(index), \
+        'x and index shapes should match, but they have {} and {}, respectively'.format(len(x), len(index))
     
     assert prefix is not None, 'prefix should not be None'
     

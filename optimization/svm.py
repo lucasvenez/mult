@@ -33,7 +33,7 @@ def sigmoid(x, alpha=1.):
 class SVMOptimizer(object):
 
     def __init__(self,
-                 n_folds=3, n_calls=50, shuffle=True, early_stopping_rounds=None,
+                 n_folds=2, n_calls=10, shuffle=True, early_stopping_rounds=None,
                  fixed_parameters={}, random_state=None, verbose=-1, n_jobs=-1):
         self.n_calls = n_calls
         self.n_folds = n_folds
@@ -56,9 +56,9 @@ class SVMOptimizer(object):
     def optimize(self, x, y):
 
         space = [
-            Real(1e-6, 1e+6, prior='log-uniform', name='C'),
-            Real(1e-6, 1e+1, prior='log-uniform', name='gamma'),
-            Integer(1, 8, name='degree'),
+            Real(1e-8, 1e-3, prior='log-uniform', name='C'),
+            Real(1e-8, 1e-4, prior='log-uniform', name='gamma'),
+            Integer(1, 3, name='degree'),
             Categorical(['linear', 'poly', 'rbf'], name='kernel')]
 
         @use_named_args(space)

@@ -31,8 +31,8 @@ warnings.filterwarnings("ignore")
 class MLPOptimizer(object):
 
     def __init__(self,
-                 n_folds=3, n_calls=50, shuffle=True,
-                 fixed_parameters={}, random_state=None,
+                 n_folds=10, n_calls=50, shuffle=True,
+                 fixed_parameters=None, random_state=None,
                  verbose=-1, n_jobs=-1):
 
         self.n_calls = n_calls
@@ -42,7 +42,7 @@ class MLPOptimizer(object):
         self.verbose = verbose
         self.n_jobs = n_jobs
         self.optimization_details = {}
-        self.fixed_parameters = fixed_parameters
+        self.fixed_parameters = fixed_parameters or dict()
 
         self.iterations = []
 
@@ -58,11 +58,11 @@ class MLPOptimizer(object):
         self.iterations = []
 
         space = [
-            Integer(10, 5000, name='hidden_layer_sizes'),
+            Integer(5, 20, name='hidden_layer_sizes'),
             Categorical(['constant', 'invscaling', 'adaptive'], name='learning_rate'),
-            Real(1e-5, 1e-1, name='learning_rate_init'),
-            Integer(200, 500, name='max_iter'),
-            Real(1e-5, 1e-1, name='tol')
+            Real(1e-5, 1e-3, name='learning_rate_init'),
+            Integer(5, 20, name='max_iter'),
+            Real(1e-5, 1e-3, name='tol')
         ]
 
         @use_named_args(space)

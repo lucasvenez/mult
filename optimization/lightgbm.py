@@ -14,27 +14,33 @@
 # ==============================================================================
 
 from skopt import gp_minimize
-from skopt.space import Real, Integer, Categorical
+from skopt.space import Real, Integer
 from skopt.utils import use_named_args
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, roc_auc_score
 
 from lightgbm import LGBMModel
 
 import pandas as pd
 import numpy as np
-import os
-import sys
 import warnings
+
 warnings.filterwarnings("ignore")
 
 
 class LightGBMOptimizer(object):
 
     def __init__(self,
-                 n_folds=3, n_calls=50, shuffle=True, early_stopping_rounds=None,
-                 fixed_parameters=None, random_state=None, verbose=-1, n_jobs=-1, use_gpu=False):
+                 n_folds=2,
+                 n_calls=10,
+                 shuffle=True,
+                 early_stopping_rounds=None,
+                 fixed_parameters=None,
+                 random_state=None,
+                 verbose=-1,
+                 n_jobs=-1,
+                 use_gpu=False):
 
         self.n_calls = n_calls
         self.n_folds = n_folds
@@ -44,9 +50,9 @@ class LightGBMOptimizer(object):
         self.n_jobs = n_jobs
         self.optimization_details = {}
         self.early_stopping_rounds = early_stopping_rounds
-        self.fixed_parameters = fixed_parameters if fixed_parameters is not None else dict()
-        self.use_gpu = use_gpu
+        self.fixed_parameters = fixed_parameters or dict()
 
+        self.use_gpu = use_gpu
         self.iterations = []
 
     def execute_optimization(self, objective, space):
@@ -72,42 +78,28 @@ class LightGBMOptimizer(object):
         self.iterations = []
 
         space = [
-            Integer(2, 4, name='num_leaves'),
+            Integer(2, 20, name='num_leaves'),
             Real(1e-1, 1.000, name='scale_pos_weight'),
-            Real(1e-1, 1.000, name='colsample_bytree'),
             Integer(2, 50, name='min_child_samples'),
             Integer(2000, 8000, name='bin_construct_sample_cnt'),
-            Integer(2, 512, name='max_bin'),
+            Integer(2, 2048, name='max_bin'),
             Real(1e-3, 1, name='min_sum_hessian_in_leaf'),
-            Real(1e-3, 1, name='bagging_fraction'),
-            Real(0.01, 1, name='feature_fraction'),
-            Real(0.01, 1, name='feature_fraction_bynode'),
             Integer(4, 20, name='max_depth'),
-            Real(1e-4, 1e-1, name='learning_rate'),
             Real(1e-4, 1e-1, name='min_split_gain'),
             Real(1e-4, 1e-1, name='min_child_weight'),
-            # Categorical([True, False], name='is_unbalance'),
-            # Categorical([True, False], name='extra_trees')
         ]
 
         @use_named_args(space)
         def objective(
-            num_leaves,
-            scale_pos_weight,
-            colsample_bytree,
-            min_child_samples,
-            bin_construct_sample_cnt,
-            max_bin,
-            min_sum_hessian_in_leaf,
-            bagging_fraction,
-            feature_fraction,
-            feature_fraction_bynode,
-            max_depth,
-            learning_rate,
-            min_split_gain,
-            min_child_weight,
-            # is_unbalance,
-            # extra_trees
+                num_leaves,
+                scale_pos_weight,
+                min_child_samples,
+                bin_construct_sample_cnt,
+                max_bin,
+                min_sum_hessian_in_leaf,
+                max_depth,
+                min_split_gain,
+                min_child_weight,
         ):
             try:
                 scores = []
@@ -115,22 +107,14 @@ class LightGBMOptimizer(object):
                 params = {
                     'num_leaves': int(round(num_leaves, ndigits=0)),
                     'scale_pos_weight': scale_pos_weight,
-                    'colsample_bytree': colsample_bytree,
                     'min_child_samples': int(round(min_child_samples, ndigits=0)),
                     'bin_construct_sample_cnt': int(round(bin_construct_sample_cnt, ndigits=0)),
                     'max_bin': int(round(max_bin, ndigits=0)),
                     'min_sum_hessian_in_leaf': min_sum_hessian_in_leaf,
-                    'bagging_fraction': bagging_fraction,
-                    'feature_fraction': feature_fraction,
-                    'feature_fraction_bynode': feature_fraction_bynode,
 
                     'max_depth': int(round(max_depth, ndigits=0)),
-                    'learning_rate': learning_rate,
                     'min_split_gain': min_split_gain,
                     'min_child_weight': min_child_weight,
-
-                    # 'is_unbalance': is_unbalance,
-                    # 'extra_trees': extra_trees,
 
                     'n_jobs': self.n_jobs,
                     'silent': self.verbose < 1,
@@ -140,9 +124,9 @@ class LightGBMOptimizer(object):
                     params.update(self.fixed_parameters)
 
                 if self.use_gpu:
-                    params.update({'device': 'gpu', 'gpu_platform_id': 1, 'gpu_device_id': 0})
-
-                params.update({'metric': 'binary_logloss'})
+                    params.update({'device': 'gpu',
+                                   'gpu_platform_id': 1,
+                                   'gpu_device_id': 0})
 
                 skf = StratifiedKFold(
                     self.n_folds, shuffle=self.shuffle, random_state=self.random_state)
@@ -152,6 +136,7 @@ class LightGBMOptimizer(object):
                     x_train, y_train = x[train_index, :], y[train_index]
                     x_valid, y_valid = x[valid_index, :], y[valid_index]
 
+                    params['objective'] = 'binary'
                     gbm = LGBMModel(**params)
 
                     gbm.fit(x_train, y_train,
@@ -159,7 +144,7 @@ class LightGBMOptimizer(object):
                             early_stopping_rounds=self.early_stopping_rounds,
                             verbose=int(self.verbose > 0))
 
-                    y_valid_hat = gbm.predict(x_valid)
+                    y_valid_hat = gbm.predict(x_valid, num_iteration=gbm.best_iteration_)
 
                     loss_valid = log_loss(y_valid, y_valid_hat)
 
